@@ -10,6 +10,11 @@
 #include <utility>
 #include <thread>
 #include <chrono>
+#include <fstream>
+#include <experimental/filesystem>
+#include <iterator>
+
+namespace fs = std::experimental::filesystem;
 
 LV_IMG_DECLARE(back);
 
@@ -195,6 +200,12 @@ WifiPanel::~WifiPanel() {
 
 void WifiPanel::foreground() {
   spdlog::trace("wifi panel fg");
+  panel_active.store(true);
+  usb_import_attempted.store(false);
+  {
+    std::lock_guard<std::mutex> status_lock(usb_status_lock);
+    usb_import_status.clear();
+  }
   lv_obj_move_foreground(cont);
   lv_obj_clear_flag(spinner, LV_OBJ_FLAG_HIDDEN);
   rescan_budget = 4;
@@ -211,6 +222,7 @@ void WifiPanel::handle_back_btn(lv_event_t *e) {
   lv_event_code_t code = lv_event_get_code(e);
   if (code == LV_EVENT_CLICKED) {
     spdlog::trace("wifi panel bg");
+    panel_active.store(false);
     lv_obj_add_flag(wifi_list_cont, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(prompt_cont, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_background(cont);
@@ -234,6 +246,122 @@ void WifiPanel::handle_pm_toggle(lv_event_t *e) {
   conf->save();
   refresh_pm_label();
   spdlog::debug("wifi low-latency toggled: {}", low_latency);
+}
+
+void WifiPanel::try_import_usb_credentials() {
+  if (!panel_active.load() || usb_import_attempted.exchange(true)) return;
+
+  // The KE mounts USB storage at this path. The other roots cover firmware
+  // variants where the same mount is exposed elsewhere.
+  static const char *const roots[] = {
+    "/opt/printer_data/gcodes/USB/sda1",
+    "/usb", "/tmp/udisk", "/media/usb", "/mnt/usb"
+  };
+  static const char *const names[] = {
+    "guppy-wifi.conf"
+  };
+
+  std::string source_path;
+  std::string contents;
+  try {
+    for (const char *root : roots) {
+      for (const char *name : names) {
+        fs::path candidate = fs::path(root) / name;
+        if (!fs::is_regular_file(fs::status(candidate))) continue;
+
+        std::ifstream input(candidate.string(), std::ios::binary);
+        if (!input) continue;
+        input.seekg(0, std::ios::end);
+        const std::streamoff size = input.tellg();
+        if (size < 0 || size > 64 * 1024) {
+          std::lock_guard<std::mutex> status_lock(usb_status_lock);
+          usb_import_status = "USB WiFi file is too large (maximum 64 KiB)";
+          spdlog::warn("ignoring USB WiFi file {}: too large", candidate.string());
+          return;
+        }
+        input.seekg(0, std::ios::beg);
+        contents.assign(std::istreambuf_iterator<char>(input),
+                        std::istreambuf_iterator<char>());
+        source_path = candidate.string();
+        break;
+      }
+      if (!source_path.empty()) break;
+    }
+  } catch (const fs::filesystem_error &e) {
+    spdlog::debug("USB WiFi file search failed: {}", e.what());
+    return;
+  }
+
+  if (source_path.empty()) return;
+
+  auto parsed = parse_wifi_credentials(contents);
+  if (!parsed.ok()) {
+    std::lock_guard<std::mutex> status_lock(usb_status_lock);
+    usb_import_status = fmt::format("USB WiFi file error:\n{}", parsed.error);
+    spdlog::warn("ignoring USB WiFi file {}: {}", source_path, parsed.error);
+    return;
+  }
+
+  apply_usb_credentials(parsed.credentials, source_path);
+}
+
+bool WifiPanel::apply_usb_credentials(const std::vector<WifiCredential> &credentials,
+                                      const std::string &source_path) {
+  find_current_network();
+
+  auto trim_response = [](std::string response) {
+    const auto first = response.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) return std::string();
+    const auto last = response.find_last_not_of(" \t\r\n");
+    return response.substr(first, last - first + 1);
+  };
+
+  auto command_ok = [this](const std::string &command) {
+    const std::string response = wpa_event.send_command(command);
+    return !response.empty() && response.find("FAIL") == std::string::npos;
+  };
+
+  std::vector<std::pair<std::string, std::string>> imported;
+  for (const auto &credential : credentials) {
+    std::string nid;
+    auto existing = list_networks.find(credential.ssid);
+    if (existing != list_networks.end()) {
+      nid = existing->second;
+    } else {
+      nid = trim_response(wpa_event.send_command("ADD_NETWORK"));
+      if (nid.empty() || nid.find("FAIL") != std::string::npos) {
+        std::lock_guard<std::mutex> status_lock(usb_status_lock);
+        usb_import_status = fmt::format("Could not add WiFi network {}", credential.ssid);
+        return false;
+      }
+      list_networks[credential.ssid] = nid;
+    }
+
+    if (!command_ok(fmt::format("SET_NETWORK {} ssid {:?}", nid, credential.ssid))
+        || !command_ok(fmt::format("SET_NETWORK {} psk {:?}", nid, credential.password))
+        || !command_ok(fmt::format("ENABLE_NETWORK {}", nid))) {
+      std::lock_guard<std::mutex> status_lock(usb_status_lock);
+      usb_import_status = fmt::format("Could not configure WiFi network {}", credential.ssid);
+      spdlog::warn("failed to configure USB WiFi network {} from {}",
+                   credential.ssid, source_path);
+      return false;
+    }
+    imported.push_back({credential.ssid, nid});
+  }
+
+  if (imported.empty()) return false;
+  selected_network = imported.front().first;
+  wpa_event.send_command(fmt::format("SELECT_NETWORK {}", imported.front().second));
+  wpa_event.send_command("SAVE_CONFIG");
+  wpa_event.send_command("REASSOCIATE");
+
+  std::lock_guard<std::mutex> status_lock(usb_status_lock);
+  usb_import_status = fmt::format("Imported {} WiFi network{} from USB\nConnecting to {} ...",
+                                  imported.size(), imported.size() == 1 ? "" : "s",
+                                  selected_network);
+  spdlog::info("imported {} WiFi network{} from {}",
+               imported.size(), imported.size() == 1 ? "" : "s", source_path);
+  return true;
 }
 
 void WifiPanel::rebuild_wifi_rows() {
@@ -374,10 +502,18 @@ void WifiPanel::handle_wpa_event(const std::string &event) {
     std::map<std::string, WifiEntry> seen_this_scan;
 
     bool found = find_current_network();
+    try_import_usb_credentials();
     spdlog::trace("cur_network {}", cur_network);
 
+    std::string usb_status;
+    {
+      std::lock_guard<std::mutex> status_lock(usb_status_lock);
+      usb_status = usb_import_status;
+    }
     std::lock_guard<std::mutex> lock(lv_lock);
-    if (!found) {
+    if (!usb_status.empty()) {
+      lv_label_set_text(wifi_label, usb_status.c_str());
+    } else if (!found) {
       lv_label_set_text(wifi_label, "Please select your wifi network");
     }
     while (std::getline(f, line)) {

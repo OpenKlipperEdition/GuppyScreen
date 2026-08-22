@@ -659,6 +659,26 @@ These execute immediately — no sub-panel opens:
 
 Opens from Settings → **WIFI**.
 
+### Configure WiFi from a USB drive
+
+The WiFi panel imports credentials automatically when it is opened and the first scan completes.
+Create a file named `guppy-wifi.conf` in the root of the USB drive and unplug/reinsert the drive before opening
+Settings → **WIFI**. The printer looks for the file at
+`/opt/printer_data/gcodes/USB/sda1/guppy-wifi.conf`.
+
+Use one network per blank-separated block:
+
+```text
+SSID=Network-Name
+
+PASSWORD=Network-Password
+```
+
+Keys are case-insensitive, `psk` may be used instead of `password`, and lines beginning with `#` or `;`
+are comments. Multiple networks can be included; the first one is selected after import. The credentials
+are added to the normal `wpa_supplicant` store, so the USB file can be removed after the connection is
+established. Passwords must be 8–64 bytes and SSIDs must be at most 32 bytes.
+
 ![WiFi panel](images/wifi-panel.png)
 
 Networks are grouped into two lists — **KNOWN NETWORKS** (anything with a saved password) and **OTHER

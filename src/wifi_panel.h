@@ -6,6 +6,7 @@
 #include "static_ip_panel.h"
 #include "network_detail_panel.h"
 #include "wifi_row_item.h"
+#include "wifi_credentials.h"
 #include "lvgl/lvgl.h"
 #include <mutex>
 
@@ -65,6 +66,9 @@ public:
 
 private:
   void rebuild_wifi_rows();
+  void try_import_usb_credentials();
+  bool apply_usb_credentials(const std::vector<WifiCredential> &credentials,
+                             const std::string &source_path);
 
   std::mutex &lv_lock;
   WpaEvent wpa_event;
@@ -103,6 +107,10 @@ private:
 
   bool entering_password = false;
   bool pw_visible = false;
+  std::atomic<bool> panel_active{false};
+  std::atomic<bool> usb_import_attempted{false};
+  std::mutex usb_status_lock;
+  std::string usb_import_status;
   int rescan_budget = 0;
   size_t last_scan_count = 0;
   std::atomic<uint32_t> conn_gen{0};
