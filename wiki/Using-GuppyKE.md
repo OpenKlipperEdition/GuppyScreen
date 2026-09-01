@@ -661,9 +661,9 @@ Opens from Settings → **WIFI**.
 
 ### Configure WiFi from a USB drive
 
-The WiFi panel imports credentials automatically when it is opened and the first scan completes.
-Create a file named `guppy-wifi.conf` in the root of the USB drive and unplug/reinsert the drive before opening
-Settings → **WIFI**. The printer looks for the file at
+Guppy imports credentials automatically during app startup. If the USB drive is mounted shortly after launch,
+it will keep checking briefly, so opening the WiFi panel is not required. Create a file named `guppy-wifi.conf`
+in the root of the USB drive and unplug/reinsert the drive before starting Guppy. The printer looks for the file at
 `/opt/printer_data/gcodes/USB/sda1/guppy-wifi.conf`.
 
 Use one network per blank-separated block:

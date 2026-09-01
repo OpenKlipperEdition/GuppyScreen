@@ -189,9 +189,22 @@ WifiPanel::WifiPanel(std::mutex &l)
     [this](const std::string &event) { this->handle_wpa_event(event); });
 
   wpa_event.start();
+
+  // USB storage can be mounted shortly after Guppy starts.  Try importing
+  // for the first minute even while the WiFi panel is hidden, so provisioning
+  // does not depend on the user opening Settings -> WIFI.
+  usb_import_timer = lv_timer_create([](lv_timer_t *timer) {
+    auto *panel = static_cast<WifiPanel *>(timer->user_data);
+    panel->try_import_usb_credentials();
+  }, 1000, this);
+  lv_timer_set_repeat_count(usb_import_timer, 60);
 }
 
 WifiPanel::~WifiPanel() {
+  if (usb_import_timer != nullptr) {
+    lv_timer_del(usb_import_timer);
+    usb_import_timer = nullptr;
+  }
   if (cont != NULL) {
     lv_obj_del(cont);
     cont = NULL;
@@ -249,7 +262,7 @@ void WifiPanel::handle_pm_toggle(lv_event_t *e) {
 }
 
 void WifiPanel::try_import_usb_credentials() {
-  if (!panel_active.load() || usb_import_attempted.exchange(true)) return;
+  if (usb_import_attempted.load()) return;
 
   // The KE mounts USB storage at this path. The other roots cover firmware
   // variants where the same mount is exposed elsewhere.
@@ -293,6 +306,11 @@ void WifiPanel::try_import_usb_credentials() {
   }
 
   if (source_path.empty()) return;
+
+  // Once a file is found, do not repeatedly apply it on every startup timer
+  // tick.  foreground() resets this when the panel is opened, preserving the
+  // existing behavior for a newly inserted/replaced USB file.
+  usb_import_attempted.store(true);
 
   auto parsed = parse_wifi_credentials(contents);
   if (!parsed.ok()) {

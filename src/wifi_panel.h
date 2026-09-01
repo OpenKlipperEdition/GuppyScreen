@@ -109,6 +109,7 @@ private:
   bool pw_visible = false;
   std::atomic<bool> panel_active{false};
   std::atomic<bool> usb_import_attempted{false};
+  lv_timer_t *usb_import_timer = nullptr;
   std::mutex usb_status_lock;
   std::string usb_import_status;
   int rescan_budget = 0;
