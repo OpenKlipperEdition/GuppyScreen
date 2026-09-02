@@ -681,6 +681,19 @@ established. Passwords must be 8–64 bytes and SSIDs must be at most 32 bytes.
 
 ![WiFi panel](images/wifi-panel.png)
 
+### Reset touch calibration from a USB drive
+
+If the screen is miscalibrated and you need a no-SSH fallback, place one of these trigger files in the
+root of a USB drive and reconnect it before launching Guppy:
+
+- `.guppy-reset-touch`
+- `.guppy-reset-touch.txt`
+- `guppy-reset-touch`
+- `guppy-reset-touch.txt`
+
+The app checks the usual USB mount roots at startup and clears the saved touch calibration state so the
+next boot re-runs the calibration wizard.
+
 Networks are grouped into two lists — **KNOWN NETWORKS** (anything with a saved password) and **OTHER
 NETWORKS IN RANGE** — each row showing 4 signal-strength bars derived from the scan's RSSI. Rescans
 automatically on open; scan results are merged across scans (a network has to miss 3 scans in a row

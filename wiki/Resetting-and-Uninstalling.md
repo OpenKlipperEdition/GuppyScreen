@@ -93,7 +93,7 @@ Works even when the screen is black, Klipper is dead, or SSH isn't responding.
 
 Open **Settings → System → Reset Options → Factory Reset Printer** → red Confirm button.
 
-### Method 3 — SSH
+### Method 4 — SSH
 
 ```sh
 /etc/init.d/S58factoryreset reset
@@ -119,3 +119,12 @@ sh -c "$(wget --no-check-certificate -qO - https://raw.githubusercontent.com/cor
 ```
 
 See [Installation](Installation) for the full guided walkthrough.
+
+---
+
+## Touch calibration reset via USB
+
+If the touchscreen is shifted or unusable and you cannot reach the UI, place a trigger file named either
+`.guppy-reset-touch` or `.guppy-reset-touch.txt` in the root of the USB drive (or the visible equivalents
+`guppy-reset-touch` / `guppy-reset-touch.txt`). Plug the drive in before starting Guppy; the app checks the
+usual mount roots and clears the saved touch calibration so the calibration wizard runs again on the next boot.

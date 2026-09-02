@@ -28,6 +28,7 @@ static void hal_init(lv_color_t p, lv_color_t s);
 #include "hv/hlog.h"
 #include "config.h"
 #include "touch_beep.h"
+#include "usb_reset_file.h"
 
 #include <algorithm>
 
@@ -43,6 +44,11 @@ int main(void)
     Config *conf = Config::get_instance();
     auto config_path = fs::canonical("/proc/self/exe").parent_path() / "guppyconfig.json";
     conf->init(config_path.string(), "/opt/printer_data/thumbnails");
+
+    if (apply_touch_calibration_reset_from_usb()) {
+      spdlog::warn("USB touch-calibration reset file detected; restarting to recapture calibration");
+      _exit(0);
+    }
 
     GuppyScreen::init(hal_init);
     GuppyScreen::loop();
