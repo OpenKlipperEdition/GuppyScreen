@@ -29,6 +29,7 @@ SettingPanel::SettingPanel(KWebSocketClient &c, std::mutex &l, lv_obj_t *parent,
 #endif
   , sysinfo_panel()
   , spoolman_panel(sm)
+  , printer_profile_panel(c)
   , wifi_btn(cont, &network_img, "WIFI", &SettingPanel::_handle_callback, this)
   , restart_klipper_btn(cont, &refresh_img, "Restart\nKlipper", &SettingPanel::_handle_callback, this)
   , restart_firmware_btn(cont, &refresh_img, "Restart\nFirmware", &SettingPanel::_handle_callback, this)
@@ -40,7 +41,7 @@ SettingPanel::SettingPanel(KWebSocketClient &c, std::mutex &l, lv_obj_t *parent,
   , spoolman_btn(cont, &spoolman_img, "Spoolman", &SettingPanel::_handle_callback, this)
   , guppy_restart_btn(cont, &refresh_img, "Restart\nGuppy", &SettingPanel::_handle_callback, this)
   , guppy_update_btn(cont, &update_img, "Update\nGuppy", &SettingPanel::_handle_callback, this)
-  , printer_select_btn(cont, &print, "Printers", &SettingPanel::_handle_callback, this)
+  , printer_profile_btn(cont, &print, "Printer\nModel", &SettingPanel::_handle_callback, this)
 {
   lv_obj_clear_flag(cont, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(cont, LV_PCT(100), LV_PCT(100));
@@ -77,7 +78,7 @@ SettingPanel::SettingPanel(KWebSocketClient &c, std::mutex &l, lv_obj_t *parent,
 
   // row 2
   lv_obj_set_grid_cell(wifi_btn.get_container(), LV_GRID_ALIGN_STRETCH, 0, 1, LV_GRID_ALIGN_STRETCH, 2, 1);
-  lv_obj_set_grid_cell(printer_select_btn.get_container(), LV_GRID_ALIGN_STRETCH, 1, 1, LV_GRID_ALIGN_STRETCH, 2, 1);
+  lv_obj_set_grid_cell(printer_profile_btn.get_container(), LV_GRID_ALIGN_STRETCH, 1, 1, LV_GRID_ALIGN_STRETCH, 2, 1);
   lv_obj_set_grid_cell(spoolman_btn.get_container(), LV_GRID_ALIGN_STRETCH, 2, 1, LV_GRID_ALIGN_STRETCH, 2, 1);
   lv_obj_set_grid_cell(sysinfo_btn.get_container(), LV_GRID_ALIGN_STRETCH, 3, 1, LV_GRID_ALIGN_STRETCH, 2, 1);
 
@@ -144,9 +145,9 @@ void SettingPanel::handle_callback(lv_event_t *event) {
       } else {
         spdlog::warn("Failed to update Guppy Screen. Did not find update script.");
       }
-    } else if (btn == printer_select_btn.get_container()) {
-      spdlog::trace("setting printers pressed");
-      printer_select_panel.foreground();
+    } else if (btn == printer_profile_btn.get_container()) {
+      spdlog::trace("setting printer profile pressed");
+      printer_profile_panel.foreground();
     }
   }
 }

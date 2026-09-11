@@ -327,9 +327,14 @@ void GuppyScreen::new_theme_apply_cb(lv_theme_t *th, lv_obj_t *obj) {
 }
 
 void GuppyScreen::handle_calibrated(lv_event_t *event) {
-  spdlog::info("finished calibration");
+  spdlog::info("finished touch calibration, auto-displaying printer model selection");
   lv_obj_t *main_screen = (lv_obj_t *)event->user_data;
   lv_disp_load_scr(main_screen);
+
+  GuppyScreen *gs = GuppyScreen::get();
+  if (gs != nullptr) {
+    gs->get_main_panel().get_setting_panel().get_printer_profile_panel().foreground();
+  }
 }
 
 void GuppyScreen::save_calibration_coeff(lv_tc_coeff_t coeff) {

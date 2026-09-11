@@ -42,6 +42,7 @@ class GuppyScreen {
   void operator=(const GuppyScreen &) = delete;
 
   std::mutex &get_lock();
+  MainPanel &get_main_panel() { return main_panel; }
 
   void connect_ws(const std::string &url);
   static GuppyScreen *get();
