@@ -310,12 +310,45 @@ void PrinterProfilePanel::show_switch_confirm(const PrinterProfileItem &profile)
   pending_profile = profile;
   static const char *btns[] = {"Cancel", "Apply & Restart", ""};
 
+  // Find current active profile MCU info
+  std::string active_mcu = "";
+  for (const auto &p : profiles) {
+    if (p.is_active) {
+      active_mcu = p.mcu;
+      break;
+    }
+  }
+
+  bool is_mcu_change = (!active_mcu.empty() && !profile.mcu.empty() && active_mcu != profile.mcu)
+                       || (active_profile_id == "creality-ender3-v3-ke" && profile.id != "creality-ender3-v3-ke")
+                       || (active_profile_id != "creality-ender3-v3-ke" && profile.id == "creality-ender3-v3-ke");
+
+  std::string mcu_warning = "";
+  if (is_mcu_change) {
+    std::string fw_info;
+    if (profile.id == "creality-ender3-v3-se") {
+      fw_info = "Flash #FFA726 Ender3V3SE_klipper.bin# via SD card.";
+    } else if (profile.id == "creality-ender3-v2-neo") {
+      fw_info = "Flash #FFA726 Ender3V2Neo_klipper.bin# via SD card.";
+    } else if (profile.id == "creality-ender3-v3-ke") {
+      fw_info = "Built-in firmware (auto-upgraded).";
+    } else {
+      fw_info = fmt::format("Requires flashing matching {} firmware.", profile.mcu);
+    }
+    mcu_warning = fmt::format(
+      "\n\n#FFA726 ⚠ MCU FIRMWARE NOTICE:#\n"
+      "Mainboard MCU changed to {}\n{}",
+      profile.mcu, fw_info
+    );
+  }
+
   std::string msg = fmt::format(
     "Switch printer profile to\n#2196F3 {}# ?\n\n"
     "This applies the printer.cfg for this model\n"
-    "and restarts Klipper services.\n\n"
+    "and restarts Klipper services.{}\n\n"
     "Existing configuration will be backed up.",
-    profile.name
+    profile.name,
+    mcu_warning
   );
 
   lv_obj_t *mbox = lv_msgbox_create(NULL, NULL, msg.c_str(), btns, false);
@@ -335,7 +368,7 @@ void PrinterProfilePanel::show_switch_confirm(const PrinterProfileItem &profile)
 
   auto hscale = (double)lv_disp_get_physical_ver_res(NULL) / 480.0;
   lv_obj_set_size(btnm, LV_PCT(90), 50 * hscale);
-  lv_obj_set_size(mbox, LV_PCT(80), LV_PCT(65));
+  lv_obj_set_size(mbox, LV_PCT(85), is_mcu_change ? LV_PCT(78) : LV_PCT(65));
 
   lv_obj_add_event_cb(btnm, [](lv_event_t *e) {
     lv_obj_draw_part_dsc_t *dsc = lv_event_get_draw_part_dsc(e);
@@ -365,6 +398,25 @@ void PrinterProfilePanel::select_profile(const PrinterProfileItem &profile) {
   int rc = sp::call(cmd);
   if (rc != 0) {
     spdlog::warn("openke-profile set exited with code {}", rc);
+    static const char *err_btns[] = {"OK", ""};
+    std::string err_msg = fmt::format(
+      "#FF5252 Cannot Switch Profile#\n\n"
+      "Profile change was blocked.\n"
+      "Ensure no print job is currently running or paused."
+    );
+    lv_obj_t *mbox = lv_msgbox_create(NULL, NULL, err_msg.c_str(), err_btns, false);
+    KUtils::style_dialog_msgbox(mbox);
+    lv_obj_t *msg_obj = ((lv_msgbox_t *)mbox)->text;
+    lv_obj_set_style_text_align(msg_obj, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_recolor(msg_obj, true);
+    lv_obj_set_width(msg_obj, LV_PCT(100));
+    lv_obj_center(msg_obj);
+    lv_obj_add_event_cb(mbox, [](lv_event_t *e) {
+      lv_obj_t *obj = lv_obj_get_parent(lv_event_get_target(e));
+      lv_msgbox_close(obj);
+    }, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_center(mbox);
+    return;
   }
 
   // Request firmware / klipper restart via Moonraker
