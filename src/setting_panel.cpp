@@ -30,6 +30,7 @@ SettingPanel::SettingPanel(KWebSocketClient &c, std::mutex &l, lv_obj_t *parent,
   , sysinfo_panel()
   , spoolman_panel(sm)
   , printer_profile_panel(c)
+  , update_panel(c)
   , wifi_btn(cont, &network_img, "WIFI", &SettingPanel::_handle_callback, this)
   , restart_klipper_btn(cont, &refresh_img, "Restart\nKlipper", &SettingPanel::_handle_callback, this)
   , restart_firmware_btn(cont, &refresh_img, "Restart\nFirmware", &SettingPanel::_handle_callback, this)
@@ -40,7 +41,7 @@ SettingPanel::SettingPanel(KWebSocketClient &c, std::mutex &l, lv_obj_t *parent,
 #endif
   , spoolman_btn(cont, &spoolman_img, "Spoolman", &SettingPanel::_handle_callback, this)
   , guppy_restart_btn(cont, &refresh_img, "Restart\nGuppy", &SettingPanel::_handle_callback, this)
-  , guppy_update_btn(cont, &update_img, "Update\nGuppy", &SettingPanel::_handle_callback, this)
+  , guppy_update_btn(cont, &update_img, "System\nUpdate", &SettingPanel::_handle_callback, this)
   , printer_profile_btn(cont, &print, "Printer\nModel", &SettingPanel::_handle_callback, this)
 {
   lv_obj_clear_flag(cont, LV_OBJ_FLAG_SCROLLABLE);
@@ -50,18 +51,6 @@ SettingPanel::SettingPanel(KWebSocketClient &c, std::mutex &l, lv_obj_t *parent,
 #ifdef OS_ANDROID
   wifi_btn.disable();
 #endif
-
-  // NebulaOS Phase 0 cleanup: update.sh is confirmed never deployed to a real
-  // NebulaOS device (it was OpenKE's own self-update mechanism, deleted from
-  // this repo as dead weight - NebulaOS ships whole-image updates instead).
-  // Capability-gate the same way Spoolman is gated above, rather than
-  // leaving a button that always fails silently when clicked.
-  {
-    auto update_script = fs::canonical("/proc/self/exe").parent_path() / "update.sh";
-    if (!fs::exists(update_script)) {
-      guppy_update_btn.disable();
-    }
-  }
 
   static lv_coord_t grid_main_row_dsc[] = {LV_GRID_FR(1), LV_GRID_FR(5), LV_GRID_FR(5), LV_GRID_FR(1),
     LV_GRID_TEMPLATE_LAST};
@@ -136,15 +125,8 @@ void SettingPanel::handle_callback(lv_event_t *event) {
         spdlog::warn("Failed to restart Guppy Screen. Restart script not found: {}", init_script);
       }
     } else if (btn == guppy_update_btn.get_container()) {
-      spdlog::trace("update guppy pressed");
-      // TODO: throw this inside the global threadpool to make it async
-      auto update_script = fs::canonical("/proc/self/exe").parent_path() / "update.sh";
-      const fs::path script(update_script);
-      if (fs::exists(script)) {
-        sp::call(script);
-      } else {
-        spdlog::warn("Failed to update Guppy Screen. Did not find update script.");
-      }
+      spdlog::trace("setting system update pressed");
+      update_panel.foreground();
     } else if (btn == printer_profile_btn.get_container()) {
       spdlog::trace("setting printer profile pressed");
       printer_profile_panel.foreground();

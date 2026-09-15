@@ -11,6 +11,7 @@
 #include "spoolman_panel.h"
 #include "printer_select_panel.h"
 #include "printer_profile_panel.h"
+#include "update_panel.h"
 #include "button_container.h"
 #include "websocket_client.h"
 #include "lvgl/lvgl.h"
@@ -26,6 +27,7 @@ class SettingPanel {
   void enable_spoolman();
   SysInfoPanel &get_sysinfo_panel() { return sysinfo_panel; }
   PrinterProfilePanel &get_printer_profile_panel() { return printer_profile_panel; }
+  UpdatePanel &get_update_panel() { return update_panel; }
 
   void handle_callback(lv_event_t *event);
 
@@ -46,6 +48,7 @@ class SettingPanel {
   SpoolmanPanel &spoolman_panel;
   PrinterSelectPanel printer_select_panel;
   PrinterProfilePanel printer_profile_panel;
+  UpdatePanel update_panel;
   ButtonContainer wifi_btn;
   ButtonContainer restart_klipper_btn;
   ButtonContainer restart_firmware_btn;
