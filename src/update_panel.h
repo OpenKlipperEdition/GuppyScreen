@@ -7,6 +7,7 @@
 
 #include <string>
 #include <vector>
+#include <set>
 #include <mutex>
 #include <atomic>
 #include <thread>
@@ -52,6 +53,9 @@ class UpdatePanel {
 
   void handle_callback(lv_event_t *event);
   void timer_tick();
+  void check_usb_auto_detect();
+  void show_usb_detect_popup(const UpdatePackageItem &pkg);
+  void close_usb_detect_popup();
   void build_package_list();
   void show_confirmation_modal(const UpdatePackageItem &pkg);
   void show_progress_view(const UpdatePackageItem &pkg);
@@ -64,6 +68,7 @@ class UpdatePanel {
   lv_obj_t *title_label{nullptr};
   lv_obj_t *list_cont{nullptr};
   lv_obj_t *modal_cont{nullptr};
+  lv_obj_t *usb_detect_mbox{nullptr};
   lv_obj_t *progress_bar{nullptr};
   lv_obj_t *progress_label{nullptr};
   lv_obj_t *status_label{nullptr};
@@ -72,9 +77,12 @@ class UpdatePanel {
   ButtonContainer scan_btn;
 
   lv_timer_t *update_timer{nullptr};
+  int scan_tick_counter{0};
 
   std::vector<UpdatePackageItem> found_packages;
+  std::set<std::string> prompted_packages;
   UpdatePackageItem selected_package;
+  UpdatePackageItem pending_usb_package;
 
   std::atomic<UpdateState> state{UpdateState::IDLE};
   std::atomic<int> progress_percent{0};

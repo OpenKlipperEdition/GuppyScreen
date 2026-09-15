@@ -9,7 +9,9 @@
 #include <iomanip>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <sys/reboot.h>
 #include <unistd.h>
+#include <cstdlib>
 #include <experimental/filesystem>
 
 namespace fs = std::experimental::filesystem;
@@ -81,6 +83,8 @@ UpdatePanel::~UpdatePanel() {
     lv_timer_del(update_timer);
     update_timer = nullptr;
   }
+  close_usb_detect_popup();
+  close_modal();
   if (worker_thread.joinable()) {
     worker_thread.join();
   }
@@ -91,6 +95,7 @@ UpdatePanel::~UpdatePanel() {
 }
 
 void UpdatePanel::foreground() {
+  close_usb_detect_popup();
   scan_updates();
   build_package_list();
   lv_obj_move_foreground(cont);
@@ -269,6 +274,10 @@ void UpdatePanel::build_package_list() {
     auto click_handler = [](lv_event_t *e) {
       if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
       auto *self = static_cast<UpdatePanel*>(e->user_data);
+      if (KUtils::is_printing()) {
+        KUtils::notify_locked();
+        return;
+      }
       size_t idx = (size_t)(uintptr_t)lv_obj_get_user_data(lv_event_get_current_target(e));
       if (idx < self->found_packages.size()) {
         self->show_confirmation_modal(self->found_packages[idx]);
@@ -283,6 +292,77 @@ void UpdatePanel::build_package_list() {
   }
 }
 
+void UpdatePanel::close_usb_detect_popup() {
+  if (usb_detect_mbox != nullptr) {
+    lv_msgbox_close(usb_detect_mbox);
+    usb_detect_mbox = nullptr;
+  }
+}
+
+void UpdatePanel::show_usb_detect_popup(const UpdatePackageItem &pkg) {
+  close_usb_detect_popup();
+
+  pending_usb_package = pkg;
+
+  static const char *btns[] = {"Install Now", "Dismiss", ""};
+  std::string body = "Found firmware update package on USB:\n\n" +
+                     pkg.file_name + " (" + pkg.file_size + ")\n\n"
+                     "Would you like to install this system update?";
+
+  usb_detect_mbox = lv_msgbox_create(NULL, "USB Firmware Update Detected",
+                                     body.c_str(), btns, false);
+  KUtils::style_lock_mbox(usb_detect_mbox, 90);
+
+  auto cb = [](lv_event_t *e) {
+    auto *self = static_cast<UpdatePanel*>(e->user_data);
+    lv_obj_t *mbox = lv_obj_get_parent(lv_event_get_target(e));
+    uint16_t btn_idx = lv_msgbox_get_active_btn(mbox);
+    if (btn_idx == 0) { // "Install Now"
+      self->foreground();
+      self->show_confirmation_modal(self->pending_usb_package);
+    }
+    self->usb_detect_mbox = nullptr;
+    lv_msgbox_close(mbox);
+  };
+
+  lv_obj_add_event_cb(usb_detect_mbox, cb, LV_EVENT_VALUE_CHANGED, this);
+}
+
+void UpdatePanel::check_usb_auto_detect() {
+  if (state != UpdateState::IDLE) return;
+  if (KUtils::is_printing()) return;
+
+  scan_updates();
+
+  std::set<std::string> current_paths;
+  for (const auto &p : found_packages) {
+    current_paths.insert(p.file_path);
+  }
+
+  for (auto it = prompted_packages.begin(); it != prompted_packages.end(); ) {
+    if (current_paths.find(*it) == current_paths.end()) {
+      it = prompted_packages.erase(it);
+    } else {
+      ++it;
+    }
+  }
+
+  if (usb_detect_mbox != nullptr &&
+      current_paths.find(pending_usb_package.file_path) == current_paths.end()) {
+    close_usb_detect_popup();
+  }
+
+  for (const auto &pkg : found_packages) {
+    if (pkg.location_tag.find("USB") != std::string::npos) {
+      if (prompted_packages.find(pkg.file_path) == prompted_packages.end()) {
+        prompted_packages.insert(pkg.file_path);
+        show_usb_detect_popup(pkg);
+        break;
+      }
+    }
+  }
+}
+
 void UpdatePanel::close_modal() {
   if (modal_cont != nullptr) {
     lv_obj_del(modal_cont);
@@ -291,11 +371,13 @@ void UpdatePanel::close_modal() {
 }
 
 void UpdatePanel::show_confirmation_modal(const UpdatePackageItem &pkg) {
+  close_usb_detect_popup();
   close_modal();
   selected_package = pkg;
   state = UpdateState::CONFIRMING;
 
   bool slot2_active = is_slot2_active();
+  bool printing = KUtils::is_printing();
   std::string active_slot = slot2_active ? "Slot 2 (OpenKE Custom)" : "Slot 1 (Stock)";
   std::string target_slot = slot2_active ? "Slot 1 (kernel: p5, rootfs: p7)" : "Slot 2 (kernel2: p6, rootfs2: p8)";
 
@@ -324,6 +406,9 @@ void UpdatePanel::show_confirmation_modal(const UpdatePackageItem &pkg) {
                           "• Preflight: Verifies hardware revision & SHA256 hashes\n"
                           "• Safety: Never overwrites the currently booted partition\n"
                           "• Reboot required upon completion.";
+  if (printing) {
+    info_text += "\n\n[LOCKED] Printer is currently active! Flashing is blocked.";
+  }
   lv_label_set_text(desc, info_text.c_str());
   lv_obj_set_style_text_font(desc, &lv_font_montserrat_14, 0);
   lv_obj_align(desc, LV_ALIGN_TOP_LEFT, 0, 30);
@@ -347,13 +432,20 @@ void UpdatePanel::show_confirmation_modal(const UpdatePackageItem &pkg) {
   lv_obj_t *confirm_btn = lv_btn_create(modal_cont);
   lv_obj_set_size(confirm_btn, 160, 44);
   lv_obj_align(confirm_btn, LV_ALIGN_BOTTOM_RIGHT, -10, 0);
-  lv_obj_set_style_bg_color(confirm_btn, lv_palette_main(LV_PALETTE_GREEN), 0);
+  lv_obj_set_style_bg_color(confirm_btn, printing ? lv_palette_darken(LV_PALETTE_GREY, 3) : lv_palette_main(LV_PALETTE_GREEN), 0);
+  if (printing) {
+    lv_obj_add_state(confirm_btn, LV_STATE_DISABLED);
+  }
   lv_obj_t *confirm_lbl = lv_label_create(confirm_btn);
-  lv_label_set_text(confirm_lbl, "Flash Update");
+  lv_label_set_text(confirm_lbl, printing ? "Busy (Printing)" : "Flash Update");
   lv_obj_center(confirm_lbl);
 
   lv_obj_add_event_cb(confirm_btn, [](lv_event_t *e) {
     auto *self = static_cast<UpdatePanel*>(e->user_data);
+    if (KUtils::is_printing()) {
+      KUtils::notify_locked();
+      return;
+    }
     self->start_update(self->selected_package);
   }, LV_EVENT_CLICKED, this);
 }
@@ -408,12 +500,27 @@ void UpdatePanel::show_progress_view(const UpdatePackageItem &pkg) {
   lv_obj_center(reboot_lbl);
 
   lv_obj_add_event_cb(reboot_btn, [](lv_event_t *e) {
-    spdlog::info("Reboot triggered by user after firmware update");
-    sp::call("sync && reboot");
+    auto *self = static_cast<UpdatePanel*>(e->user_data);
+    if (self->state == UpdateState::FAILED) {
+      self->state = UpdateState::IDLE;
+      self->close_modal();
+    } else if (self->state == UpdateState::SUCCESS) {
+      spdlog::info("Reboot triggered by user after firmware update");
+      sync();
+      int rc = system("sync; reboot -f || /sbin/reboot -f || reboot || /sbin/reboot");
+      (void)rc;
+      reboot(RB_AUTOBOOT);
+    }
   }, LV_EVENT_CLICKED, this);
 }
 
 void UpdatePanel::start_update(const UpdatePackageItem &pkg) {
+  if (KUtils::is_printing()) {
+    KUtils::notify_locked();
+    close_modal();
+    return;
+  }
+
   show_progress_view(pkg);
 
   state = UpdateState::FLASHING;
@@ -492,7 +599,12 @@ void UpdatePanel::execute_update_thread(std::string swu_path) {
 }
 
 void UpdatePanel::timer_tick() {
-  if (state == UpdateState::FLASHING) {
+  if (state == UpdateState::IDLE) {
+    scan_tick_counter = (scan_tick_counter + 1) % 15; // Every 3 seconds (15 * 200ms)
+    if (scan_tick_counter == 0) {
+      check_usb_auto_detect();
+    }
+  } else if (state == UpdateState::FLASHING) {
     if (progress_bar != nullptr) {
       lv_bar_set_value(progress_bar, progress_percent.load(), LV_ANIM_ON);
     }
@@ -517,6 +629,9 @@ void UpdatePanel::timer_tick() {
     }
     if (reboot_btn != nullptr) {
       lv_obj_clear_flag(reboot_btn, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_set_style_bg_color(reboot_btn, lv_palette_main(LV_PALETTE_GREEN), 0);
+      lv_obj_t *lbl = lv_obj_get_child(reboot_btn, 0);
+      if (lbl) lv_label_set_text(lbl, "Reboot Now");
     }
   } else if (state == UpdateState::FAILED) {
     if (status_label != nullptr) {
@@ -529,11 +644,6 @@ void UpdatePanel::timer_tick() {
       lv_obj_set_style_bg_color(reboot_btn, lv_palette_darken(LV_PALETTE_GREY, 2), 0);
       lv_obj_t *lbl = lv_obj_get_child(reboot_btn, 0);
       if (lbl) lv_label_set_text(lbl, "Close");
-      lv_obj_add_event_cb(reboot_btn, [](lv_event_t *e) {
-        auto *self = static_cast<UpdatePanel*>(e->user_data);
-        self->state = UpdateState::IDLE;
-        self->close_modal();
-      }, LV_EVENT_CLICKED, this);
     }
   }
 }
