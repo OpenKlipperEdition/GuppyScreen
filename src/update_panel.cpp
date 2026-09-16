@@ -343,7 +343,7 @@ void UpdatePanel::build_package_list() {
     const auto &pkg = found_packages[i];
 
     lv_obj_t *card = lv_obj_create(list_cont);
-    lv_obj_set_size(card, LV_PCT(100), 86);
+    lv_obj_set_size(card, LV_PCT(100), 90);
     lv_obj_set_style_bg_color(card, lv_palette_darken(LV_PALETTE_GREY, 4), 0);
     lv_obj_set_style_radius(card, 8, 0);
     lv_obj_set_style_pad_all(card, 8, 0);
@@ -355,15 +355,15 @@ void UpdatePanel::build_package_list() {
     lv_obj_set_style_text_font(name_lbl, &lv_font_montserrat_16, 0);
     lv_obj_align(name_lbl, LV_ALIGN_TOP_LEFT, 0, 0);
 
-    // Version Badge label
+    // Version Badge label (between filename and size/source)
     if (!pkg.version.empty()) {
       lv_obj_t *badge = lv_obj_create(card);
-      lv_obj_set_size(badge, LV_SIZE_CONTENT, 22);
+      lv_obj_set_size(badge, LV_SIZE_CONTENT, 20);
       lv_obj_set_style_pad_hor(badge, 6, 0);
-      lv_obj_set_style_pad_ver(badge, 2, 0);
+      lv_obj_set_style_pad_ver(badge, 1, 0);
       lv_obj_set_style_radius(badge, 4, 0);
       lv_obj_clear_flag(badge, LV_OBJ_FLAG_SCROLLABLE);
-      lv_obj_align(badge, LV_ALIGN_TOP_RIGHT, -125, -2);
+      lv_obj_align(badge, LV_ALIGN_TOP_LEFT, 0, 24);
 
       if (pkg.version_diff > 0) {
         lv_obj_set_style_bg_color(badge, lv_palette_main(LV_PALETTE_GREEN), 0);
