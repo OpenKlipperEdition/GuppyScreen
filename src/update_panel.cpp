@@ -135,8 +135,93 @@ static bool is_slot2_active() {
   return false;
 }
 
+static std::string get_current_os_version() {
+  std::ifstream vfile("/etc/openke-version");
+  if (vfile.is_open()) {
+    std::string v;
+    if (std::getline(vfile, v) && !v.empty()) {
+      return v;
+    }
+  }
+  std::ifstream swfile("/etc/sw-versions");
+  if (swfile.is_open()) {
+    std::string name, ver;
+    if (swfile >> name >> ver && !ver.empty()) {
+      return ver;
+    }
+  }
+  std::ifstream osfile("/etc/os-release");
+  if (osfile.is_open()) {
+    std::string line;
+    while (std::getline(osfile, line)) {
+      if (line.rfind("VERSION=", 0) == 0 || line.rfind("VERSION_ID=", 0) == 0) {
+        std::string v = line.substr(line.find('=') + 1);
+        if (v.size() >= 2 && (v.front() == '"' || v.front() == '\'')) {
+          v = v.substr(1, v.size() - 2);
+        }
+        return v;
+      }
+    }
+  }
+  return "1.0.0";
+}
+
+static std::string parse_swu_version(const std::string &swu_path, const std::string &filename) {
+  std::ifstream f(swu_path, std::ios::binary);
+  if (f.is_open()) {
+    std::vector<char> buf(8192, 0);
+    f.read(buf.data(), buf.size() - 1);
+    std::string content(buf.data());
+    auto pos = content.find("version = \"");
+    if (pos != std::string::npos) {
+      pos += 11;
+      auto endpos = content.find('"', pos);
+      if (endpos != std::string::npos) {
+        return content.substr(pos, endpos - pos);
+      }
+    }
+  }
+  if (filename.rfind("openke-update-", 0) == 0) {
+    std::string v = filename.substr(14);
+    if (v.size() > 4 && v.substr(v.size() - 4) == ".swu") {
+      return v.substr(0, v.size() - 4);
+    }
+  }
+  return "";
+}
+
+static std::vector<int> parse_version_nums(const std::string &v) {
+  std::vector<int> nums;
+  std::stringstream ss(v);
+  std::string item;
+  while (std::getline(ss, item, '.')) {
+    try {
+      nums.push_back(std::stoi(item));
+    } catch (...) {
+      nums.push_back(0);
+    }
+  }
+  return nums;
+}
+
+static int compare_versions(const std::string &v1, const std::string &v2) {
+  if (v1.empty() || v2.empty()) return 0;
+  if (v1 == v2) return 0;
+  auto nums1 = parse_version_nums(v1);
+  auto nums2 = parse_version_nums(v2);
+  size_t max_len = std::max(nums1.size(), nums2.size());
+  for (size_t i = 0; i < max_len; ++i) {
+    int n1 = i < nums1.size() ? nums1[i] : 0;
+    int n2 = i < nums2.size() ? nums2[i] : 0;
+    if (n1 > n2) return 1;
+    if (n1 < n2) return -1;
+  }
+  return 0;
+}
+
 void UpdatePanel::scan_updates() {
   found_packages.clear();
+  std::string current_ver = get_current_os_version();
 
   std::vector<std::pair<std::string, std::string>> search_paths;
 
@@ -191,6 +276,20 @@ void UpdatePanel::scan_updates() {
             item.file_path = entry.path().string();
             item.file_name = entry.path().filename().string();
             item.location_tag = tag;
+            item.version = parse_swu_version(item.file_path, item.file_name);
+
+            if (!item.version.empty() && !current_ver.empty()) {
+              item.version_diff = compare_versions(item.version, current_ver);
+              if (item.version_diff > 0) {
+                item.status_badge = "Newer (Upgrade)";
+              } else if (item.version_diff == 0) {
+                item.status_badge = "Current Version";
+              } else {
+                item.status_badge = "Older (Downgrade)";
+              }
+            } else {
+              item.status_badge = "Firmware Package";
+            }
 
             auto fsize = fs::file_size(entry.path());
             std::stringstream ss;
@@ -221,6 +320,11 @@ void UpdatePanel::scan_updates() {
 void UpdatePanel::build_package_list() {
   lv_obj_clean(list_cont);
 
+  std::string current_ver = get_current_os_version();
+  std::string slot_name = is_slot2_active() ? "Slot 2" : "Slot 1";
+  std::string title_str = "Firmware Update (SWUpdate) | Installed: v" + current_ver + " (" + slot_name + ")";
+  lv_label_set_text(title_label, title_str.c_str());
+
   if (found_packages.empty()) {
     lv_obj_t *empty_card = lv_obj_create(list_cont);
     lv_obj_set_size(empty_card, LV_PCT(100), 120);
@@ -239,7 +343,7 @@ void UpdatePanel::build_package_list() {
     const auto &pkg = found_packages[i];
 
     lv_obj_t *card = lv_obj_create(list_cont);
-    lv_obj_set_size(card, LV_PCT(100), 80);
+    lv_obj_set_size(card, LV_PCT(100), 86);
     lv_obj_set_style_bg_color(card, lv_palette_darken(LV_PALETTE_GREY, 4), 0);
     lv_obj_set_style_radius(card, 8, 0);
     lv_obj_set_style_pad_all(card, 8, 0);
@@ -251,9 +355,34 @@ void UpdatePanel::build_package_list() {
     lv_obj_set_style_text_font(name_lbl, &lv_font_montserrat_16, 0);
     lv_obj_align(name_lbl, LV_ALIGN_TOP_LEFT, 0, 0);
 
+    // Version Badge label
+    if (!pkg.version.empty()) {
+      lv_obj_t *badge = lv_obj_create(card);
+      lv_obj_set_size(badge, LV_SIZE_CONTENT, 22);
+      lv_obj_set_style_pad_hor(badge, 6, 0);
+      lv_obj_set_style_pad_ver(badge, 2, 0);
+      lv_obj_set_style_radius(badge, 4, 0);
+      lv_obj_clear_flag(badge, LV_OBJ_FLAG_SCROLLABLE);
+      lv_obj_align(badge, LV_ALIGN_TOP_RIGHT, -125, -2);
+
+      if (pkg.version_diff > 0) {
+        lv_obj_set_style_bg_color(badge, lv_palette_main(LV_PALETTE_GREEN), 0);
+      } else if (pkg.version_diff == 0) {
+        lv_obj_set_style_bg_color(badge, lv_palette_darken(LV_PALETTE_GREY, 2), 0);
+      } else {
+        lv_obj_set_style_bg_color(badge, lv_palette_main(LV_PALETTE_ORANGE), 0);
+      }
+
+      lv_obj_t *badge_lbl = lv_label_create(badge);
+      std::string b_text = "v" + pkg.version + " (" + pkg.status_badge + ")";
+      lv_label_set_text(badge_lbl, b_text.c_str());
+      lv_obj_set_style_text_font(badge_lbl, &lv_font_montserrat_12, 0);
+      lv_obj_center(badge_lbl);
+    }
+
     // Meta label
     lv_obj_t *meta_lbl = lv_label_create(card);
-    std::string meta_str = "Size: " + pkg.file_size + " | Source: " + pkg.location_tag + " | Path: " + pkg.file_path;
+    std::string meta_str = "Size: " + pkg.file_size + " | Source: " + pkg.location_tag;
     lv_label_set_text(meta_lbl, meta_str.c_str());
     lv_obj_set_style_text_font(meta_lbl, &lv_font_montserrat_12, 0);
     lv_obj_set_style_text_color(meta_lbl, lv_palette_lighten(LV_PALETTE_GREY, 1), 0);
@@ -263,7 +392,11 @@ void UpdatePanel::build_package_list() {
     lv_obj_t *btn = lv_btn_create(card);
     lv_obj_set_size(btn, 110, 42);
     lv_obj_align(btn, LV_ALIGN_RIGHT_MID, 0, 0);
-    lv_obj_set_style_bg_color(btn, lv_palette_main(LV_PALETTE_BLUE), 0);
+    if (pkg.version_diff > 0) {
+      lv_obj_set_style_bg_color(btn, lv_palette_main(LV_PALETTE_GREEN), 0);
+    } else {
+      lv_obj_set_style_bg_color(btn, lv_palette_main(LV_PALETTE_BLUE), 0);
+    }
     lv_obj_set_style_radius(btn, 6, 0);
 
     lv_obj_t *btn_lbl = lv_label_create(btn);
@@ -399,11 +532,14 @@ void UpdatePanel::show_confirmation_modal(const UpdatePackageItem &pkg) {
   lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 0);
 
   lv_obj_t *desc = lv_label_create(modal_cont);
-  std::string info_text = "Package: " + pkg.file_name + " (" + pkg.file_size + ")\n\n"
-                          "• Active Slot: " + active_slot + "\n"
+  std::string current_ver = get_current_os_version();
+  std::string pkg_ver_str = pkg.version.empty() ? "Unspecified" : ("v" + pkg.version + " (" + pkg.status_badge + ")");
+  std::string info_text = "Package: " + pkg.file_name + " (" + pkg.file_size + ")\n"
+                          "• Version: " + pkg_ver_str + "\n"
+                          "• Installed: OpenKE v" + current_ver + " (" + active_slot + ")\n"
                           "• Target Slot: " + target_slot + "\n"
                           "• Preflight: Verifies hardware revision & SHA256 hashes\n"
-                          "• Safety: Never overwrites the currently booted partition\n"
+                          "• Safety: Automatic backup of user config prior to write\n"
                           "• Reboot required upon completion.";
   if (printing) {
     info_text += "\n\n[LOCKED] Printer is currently active! Flashing is blocked.";

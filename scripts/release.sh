@@ -29,5 +29,5 @@ if [ -f ./custom_upgrade.sh ]; then
 fi
 
 
-echo "{\"version\": \"$GUPPYSCREEN_VERSION\", \"theme\": \"$GUPPY_THEME\", \"asset_name\": \"$ASSET_NAME.tar.gz\"}" > $RELEASES_DIR/.version
+echo "{\"version\": \"$OPENKE_VERSION\", \"theme\": \"$GUPPY_THEME\", \"asset_name\": \"$ASSET_NAME.tar.gz\"}" > $RELEASES_DIR/.version
 tar czf $ASSET_NAME.tar.gz -C releases .

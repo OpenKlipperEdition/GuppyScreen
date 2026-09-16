@@ -61,8 +61,8 @@ else
 CSRCS 			+= $(wildcard $(LVGL_DIR)/assets/$(ASSET_DIR)/*.c)
 endif
 
-ifdef GUPPYSCREEN_VERSION
-DEFINES			+= -D GUPPYSCREEN_VERSION="\"${GUPPYSCREEN_VERSION}\""
+ifdef OPENKE_VERSION
+DEFINES			+= -D OPENKE_VERSION="\"${OPENKE_VERSION}\""
 endif
 
 OBJEXT 			?= .o

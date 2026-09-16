@@ -18,10 +18,10 @@ namespace fs = std::experimental::filesystem;
 LV_IMG_DECLARE(back);
 LV_IMG_DECLARE(cancel);
 
-#ifdef GUPPYSCREEN_VERSION
-#define GS_VERSION GUPPYSCREEN_VERSION
+#ifdef OPENKE_VERSION
+#define OPENKE_VER_STR OPENKE_VERSION
 #else
-#define GS_VERSION "dev-snapshot"
+#define OPENKE_VER_STR "dev-snapshot"
 #endif
 
 std::vector<std::string> SysInfoPanel::log_levels = {
@@ -445,7 +445,7 @@ void SysInfoPanel::foreground() {
     network_detail.push_back(fmt::format("\t{}: {}", iface, ip));
   }
   std::string active_slot = is_slot2_active() ? "Slot 2" : "Slot 1";
-  lv_label_set_text(network_label, fmt::format("{}\n\nSystem\n\tActive Slot: {}\n\tGuppyScreen: " GS_VERSION,
+  lv_label_set_text(network_label, fmt::format("{}\n\nSystem\n\tActive Slot: {}\n\tOpenKE: v" OPENKE_VER_STR,
     fmt::join(network_detail, "\n"), active_slot).c_str());
 }
 

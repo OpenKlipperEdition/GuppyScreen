@@ -18,6 +18,9 @@ struct UpdatePackageItem {
   std::string file_name;
   std::string file_size;
   std::string location_tag;
+  std::string version;
+  std::string status_badge;
+  int version_diff{0}; // >0 newer, 0 same, <0 older
   time_t modified_time{0};
 };
 

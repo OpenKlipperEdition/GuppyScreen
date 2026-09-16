@@ -104,9 +104,9 @@ GuppyScreen *GuppyScreen::init(std::function<void(lv_color_t, lv_color_t)> hal_i
     KUtils::set_wifi_low_latency(true);
   }
 
-#ifdef GUPPYSCREEN_VERSION
-  spdlog::info("Guppy Screen Version: {}", GUPPYSCREEN_VERSION);
-#endif  // GUPPYSCREEN_VERSION
+#ifdef OPENKE_VERSION
+  spdlog::info("OpenKE Version: {}", OPENKE_VERSION);
+#endif  // OPENKE_VERSION
 
   spdlog::info("DPI: {}", LV_DPI_DEF);
   /*LittlevGL init*/
