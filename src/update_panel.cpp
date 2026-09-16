@@ -304,10 +304,10 @@ void UpdatePanel::show_usb_detect_popup(const UpdatePackageItem &pkg) {
 
   pending_usb_package = pkg;
 
-  static const char *btns[] = {"Install Now", "Dismiss", ""};
+  static const char *btns[] = {"View Update", "Dismiss", ""};
   std::string body = "Found firmware update package on USB:\n\n" +
                      pkg.file_name + " (" + pkg.file_size + ")\n\n"
-                     "Would you like to install this system update?";
+                     "Open the System Update panel to view details and install?";
 
   usb_detect_mbox = lv_msgbox_create(NULL, "USB Firmware Update Detected",
                                      body.c_str(), btns, false);
@@ -317,9 +317,8 @@ void UpdatePanel::show_usb_detect_popup(const UpdatePackageItem &pkg) {
     auto *self = static_cast<UpdatePanel*>(e->user_data);
     lv_obj_t *mbox = lv_obj_get_parent(lv_event_get_target(e));
     uint16_t btn_idx = lv_msgbox_get_active_btn(mbox);
-    if (btn_idx == 0) { // "Install Now"
+    if (btn_idx == 0) { // "View Update"
       self->foreground();
-      self->show_confirmation_modal(self->pending_usb_package);
     }
     self->usb_detect_mbox = nullptr;
     lv_msgbox_close(mbox);
