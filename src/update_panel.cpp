@@ -377,8 +377,8 @@ void UpdatePanel::show_confirmation_modal(const UpdatePackageItem &pkg) {
 
   bool slot2_active = is_slot2_active();
   bool printing = KUtils::is_printing();
-  std::string active_slot = slot2_active ? "Slot 2 (OpenKE Custom)" : "Slot 1 (Stock)";
-  std::string target_slot = slot2_active ? "Slot 1 (kernel: p5, rootfs: p7)" : "Slot 2 (kernel2: p6, rootfs2: p8)";
+  std::string active_slot = slot2_active ? "Slot 2" : "Slot 1";
+  std::string target_slot = slot2_active ? "Slot 1" : "Slot 2";
 
   modal_cont = lv_obj_create(cont);
   lv_obj_add_flag(modal_cont, LV_OBJ_FLAG_FLOATING);
@@ -400,8 +400,8 @@ void UpdatePanel::show_confirmation_modal(const UpdatePackageItem &pkg) {
 
   lv_obj_t *desc = lv_label_create(modal_cont);
   std::string info_text = "Package: " + pkg.file_name + " (" + pkg.file_size + ")\n\n"
-                          "• Active Boot Slot: " + active_slot + "\n"
-                          "• Target Inactive Slot: " + target_slot + "\n"
+                          "• Active Slot: " + active_slot + "\n"
+                          "• Target Slot: " + target_slot + "\n"
                           "• Preflight: Verifies hardware revision & SHA256 hashes\n"
                           "• Safety: Never overwrites the currently booted partition\n"
                           "• Reboot required upon completion.";
