@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <iterator>
 #include <map>
+#include <fstream>
 
 #include <experimental/filesystem>
 
@@ -83,6 +84,10 @@ SysInfoPanel::SysInfoPanel()
   // display brightness
   , brightness_cont(lv_obj_create(left_cont))
   , brightness_dd(lv_dropdown_create(brightness_cont))
+
+  // display rotation
+  , rotation_cont(lv_obj_create(left_cont))
+  , rotation_dd(lv_dropdown_create(rotation_cont))
 
   // log level
   , ll_cont(lv_obj_create(left_cont))
@@ -201,6 +206,25 @@ SysInfoPanel::SysInfoPanel()
   } else {
     lv_obj_add_flag(brightness_cont, LV_OBJ_FLAG_HIDDEN);
   }
+
+  // Display Rotation dropdown
+  lv_obj_set_size(rotation_cont, LV_PCT(100), LV_SIZE_CONTENT);
+  lv_obj_set_style_pad_all(rotation_cont, 0, 0);
+  l = lv_label_create(rotation_cont);
+  lv_label_set_text(l, "Rotation");
+  lv_obj_align(l, LV_ALIGN_LEFT_MID, 0, 0);
+  lv_obj_align(rotation_dd, LV_ALIGN_RIGHT_MID, 0, 0);
+  lv_dropdown_set_options(rotation_dd, "0°\n90°\n180°\n270°");
+
+  auto v_rot = conf->get_json("/display_rotate");
+  if (!v_rot.is_null()) {
+    auto rot_val = v_rot.template get<uint32_t>();
+    if (rot_val < 4) {
+      lv_dropdown_set_selected(rotation_dd, rot_val);
+    }
+  }
+  lv_obj_add_event_cb(rotation_dd, &SysInfoPanel::_handle_callback,
+    LV_EVENT_VALUE_CHANGED, this);
 
   lv_obj_set_size(ll_cont, LV_PCT(100), LV_SIZE_CONTENT);
   lv_obj_set_style_pad_all(ll_cont, 0, 0);
@@ -397,6 +421,19 @@ SysInfoPanel::~SysInfoPanel() {
   }
 }
 
+static bool is_slot2_active() {
+  std::ifstream cmdline("/proc/cmdline");
+  if (cmdline.is_open()) {
+    std::string line;
+    std::getline(cmdline, line);
+    if (line.find("root=/dev/mmcblk0p8") != std::string::npos ||
+        line.find("rootfs2") != std::string::npos) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void SysInfoPanel::foreground() {
   lv_obj_move_foreground(cont);
 
@@ -407,8 +444,9 @@ void SysInfoPanel::foreground() {
     auto ip = KUtils::interface_ip(iface);
     network_detail.push_back(fmt::format("\t{}: {}", iface, ip));
   }
-  lv_label_set_text(network_label, fmt::format("{}\n\nGuppyScreen\n\tVersion: " GS_VERSION,
-    fmt::join(network_detail, "\n")).c_str());
+  std::string active_slot = is_slot2_active() ? "Slot 2" : "Slot 1";
+  lv_label_set_text(network_label, fmt::format("{}\n\nSystem\n\tActive Slot: {}\n\tGuppyScreen: " GS_VERSION,
+    fmt::join(network_detail, "\n"), active_slot).c_str());
 }
 
 void SysInfoPanel::handle_callback(lv_event_t *e)
@@ -437,6 +475,15 @@ void SysInfoPanel::handle_callback(lv_event_t *e)
           conf->set<std::string>(conf->df() + "log_level", log_levels[loglevel]);
           conf->save();
         }
+      }
+    } else if (obj == rotation_dd) {
+      uint32_t selected_rot = lv_dropdown_get_selected(rotation_dd);
+      conf->set<uint32_t>("/display_rotate", selected_rot);
+      conf->save();
+      lv_disp_t *disp = lv_disp_get_default();
+      if (disp != nullptr) {
+        disp->driver->sw_rotate = 1;
+        lv_disp_set_rotation(disp, (lv_disp_rot_t)selected_rot);
       }
     } else if (obj == prompt_estop_toggle) {
       bool should_prompt = lv_obj_has_state(prompt_estop_toggle, LV_STATE_CHECKED);

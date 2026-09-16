@@ -38,6 +38,9 @@ class SysInfoPanel {
   lv_obj_t *brightness_cont;
   lv_obj_t *brightness_dd;
 
+  lv_obj_t *rotation_cont;
+  lv_obj_t *rotation_dd;
+
   lv_obj_t *ll_cont;
   lv_obj_t *loglevel_dd;
   uint32_t loglevel;
