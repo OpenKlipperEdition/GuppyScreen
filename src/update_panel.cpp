@@ -350,6 +350,219 @@ static void scan_remote_repo(std::vector<UpdatePackageItem> &packages, const std
   unlink(tmp_manifest.c_str());
 }
 
+static std::vector<std::string> get_dev_server_urls() {
+  std::vector<std::string> urls;
+  std::vector<std::string> conf_paths = {
+    "/usr/data/nebulaos/openke-update.conf",
+    "/usr/data/printer_data/config/openke-update.conf",
+    "/etc/openke-update.conf",
+    "/tmp/openke-dev-server.conf",
+    "/tmp/openke-dev-url",
+    "/usr/data/openke-dev-url"
+  };
+
+  for (const auto &cp : conf_paths) {
+    std::ifstream f(cp);
+    if (!f.is_open()) continue;
+    std::string line;
+    while (std::getline(f, line)) {
+      while (!line.empty() && (line.front() == ' ' || line.front() == '\t')) line.erase(0, 1);
+      while (!line.empty() && (line.back() == ' ' || line.back() == '\t' || line.back() == '\r' || line.back() == '\n')) line.pop_back();
+      if (line.empty() || line[0] == '#') continue;
+
+      std::string val;
+      if (line.rfind("dev_server_url=", 0) == 0) {
+        val = line.substr(15);
+      } else if (line.rfind("dev_manifest_url=", 0) == 0) {
+        val = line.substr(17);
+      } else if (line.rfind("local_dev_url=", 0) == 0) {
+        val = line.substr(14);
+      } else if (line.rfind("dev_url=", 0) == 0) {
+        val = line.substr(8);
+      } else if (line.rfind("http://", 0) == 0 || line.rfind("https://", 0) == 0) {
+        val = line;
+      }
+
+      if (!val.empty()) {
+        if (val.size() >= 2 && (val.front() == '"' || val.front() == '\'')) {
+          val = val.substr(1, val.size() - 2);
+        }
+        if (std::find(urls.begin(), urls.end(), val) == urls.end()) {
+          urls.push_back(val);
+        }
+      }
+    }
+  }
+  return urls;
+}
+
+static void scan_dev_servers(std::vector<UpdatePackageItem> &packages, const std::string &current_ver) {
+  std::vector<std::string> dev_urls = get_dev_server_urls();
+  if (dev_urls.empty()) return;
+
+  for (std::string base_url : dev_urls) {
+    while (!base_url.empty() && base_url.back() == '/') {
+      base_url.pop_back();
+    }
+    if (base_url.empty()) continue;
+
+    std::string manifest_url;
+    if (base_url.rfind(".json") != std::string::npos) {
+      manifest_url = base_url;
+    } else if (base_url.rfind(".swu") != std::string::npos) {
+      UpdatePackageItem item;
+      item.file_path = base_url;
+      item.file_name = base_url.substr(base_url.find_last_of('/') + 1);
+      item.version = "dev";
+      item.status_badge = "Dev Build";
+      item.location_tag = "Dev Server (LAN)";
+      item.is_remote = true;
+      item.is_nightly = true;
+      item.file_size = "Local Server";
+
+      std::string head_file = "/tmp/openke-dev-head.txt";
+      unlink(head_file.c_str());
+      std::string hcmd = "curl -s -k -I -m 2 '" + base_url + "' -o '" + head_file + "' 2>/dev/null";
+      if (system(hcmd.c_str()) == 0 && fs::exists(head_file)) {
+        std::ifstream hf(head_file);
+        std::string hline;
+        while (std::getline(hf, hline)) {
+          if (hline.rfind("Content-Length:", 0) == 0 || hline.rfind("content-length:", 0) == 0) {
+            try {
+              uint64_t cl = std::stoull(hline.substr(15));
+              if (cl > 0) {
+                std::stringstream ss;
+                ss << std::fixed << std::setprecision(1) << (static_cast<double>(cl) / (1024.0 * 1024.0)) << " MB";
+                item.file_size = ss.str();
+              }
+            } catch (...) {}
+          }
+        }
+        unlink(head_file.c_str());
+        packages.push_back(item);
+      }
+      continue;
+    } else {
+      manifest_url = base_url + "/releases.json";
+    }
+
+    std::string tmp_manifest = "/tmp/openke-dev-manifest.json";
+    unlink(tmp_manifest.c_str());
+    std::string cmd = "curl -s -k -m 2 -L '" + manifest_url + "' -o '" + tmp_manifest + "' 2>/dev/null";
+    int rc = system(cmd.c_str());
+
+    bool manifest_ok = (rc == 0 && fs::exists(tmp_manifest) && fs::file_size(tmp_manifest) > 0);
+    if (!manifest_ok && manifest_url == (base_url + "/releases.json")) {
+      manifest_url = base_url + "/manifest.json";
+      cmd = "curl -s -k -m 2 -L '" + manifest_url + "' -o '" + tmp_manifest + "' 2>/dev/null";
+      rc = system(cmd.c_str());
+      manifest_ok = (rc == 0 && fs::exists(tmp_manifest) && fs::file_size(tmp_manifest) > 0);
+    }
+
+    if (manifest_ok) {
+      std::ifstream f(tmp_manifest);
+      if (f.is_open()) {
+        try {
+          json j = json::parse(f);
+          if (j.contains("releases") && j["releases"].is_array()) {
+            for (const auto &rel : j["releases"]) {
+              if (!rel.contains("url") && !rel.contains("filename")) continue;
+
+              std::string rel_url = rel.value("url", "");
+              std::string fname = rel.value("filename", "openke-update.swu");
+              if (rel_url.empty()) rel_url = fname;
+
+              if (rel_url.rfind("http://", 0) != 0 && rel_url.rfind("https://", 0) != 0) {
+                if (rel_url.front() == '/') {
+                  rel_url = base_url + rel_url;
+                } else {
+                  rel_url = base_url + "/" + rel_url;
+                }
+              }
+
+              UpdatePackageItem item;
+              item.file_path = rel_url;
+              item.file_name = fname;
+              item.version = rel.value("version", "dev");
+              item.expected_sha256 = rel.value("sha256", "");
+              item.release_notes = rel.value("release_notes", "");
+              item.location_tag = "Dev Server (LAN)";
+              item.is_remote = true;
+              item.is_nightly = true;
+              item.status_badge = "Dev Build";
+
+              uint64_t sz_bytes = rel.value("size_bytes", (uint64_t)0);
+              if (sz_bytes > 0) {
+                std::stringstream ss;
+                ss << std::fixed << std::setprecision(1) << (static_cast<double>(sz_bytes) / (1024.0 * 1024.0)) << " MB";
+                item.file_size = ss.str();
+              } else {
+                item.file_size = "Dev Server";
+              }
+
+              bool dup = false;
+              for (const auto &p : packages) {
+                if (p.file_path == item.file_path) {
+                  dup = true;
+                  break;
+                }
+              }
+              if (!dup) {
+                packages.push_back(item);
+              }
+            }
+          }
+        } catch (const std::exception &e) {
+          spdlog::warn("Dev server manifest parse error: {}", e.what());
+        }
+      }
+      unlink(tmp_manifest.c_str());
+    } else {
+      std::vector<std::string> swu_probes = { "openke-update.swu", "openke-update-1.0.0.swu" };
+      for (const auto &swu_name : swu_probes) {
+        std::string test_url = base_url + "/" + swu_name;
+        std::string head_file = "/tmp/openke-dev-probe-head.txt";
+        unlink(head_file.c_str());
+        std::string pcmd = "curl -s -k -I -m 2 '" + test_url + "' -o '" + head_file + "' 2>/dev/null";
+        if (system(pcmd.c_str()) == 0 && fs::exists(head_file)) {
+          std::ifstream hf(head_file);
+          std::string first_line;
+          std::getline(hf, first_line);
+          if (first_line.find("200") != std::string::npos) {
+            UpdatePackageItem item;
+            item.file_path = test_url;
+            item.file_name = swu_name;
+            item.version = "dev";
+            item.status_badge = "Dev Build";
+            item.location_tag = "Dev Server (LAN)";
+            item.is_remote = true;
+            item.is_nightly = true;
+            item.file_size = "Local Server";
+
+            std::string hline;
+            while (std::getline(hf, hline)) {
+              if (hline.rfind("Content-Length:", 0) == 0 || hline.rfind("content-length:", 0) == 0) {
+                try {
+                  uint64_t cl = std::stoull(hline.substr(15));
+                  if (cl > 0) {
+                    std::stringstream ss;
+                    ss << std::fixed << std::setprecision(1) << (static_cast<double>(cl) / (1024.0 * 1024.0)) << " MB";
+                    item.file_size = ss.str();
+                  }
+                } catch (...) {}
+              }
+            }
+            unlink(head_file.c_str());
+            packages.push_back(item);
+            break;
+          }
+        }
+        unlink(head_file.c_str());
+      }
+    }
+  }
+}
+
 void UpdatePanel::scan_updates() {
   found_packages.clear();
   std::string current_ver = get_current_os_version();
@@ -460,7 +673,10 @@ void UpdatePanel::scan_updates() {
     }
   }
 
-  // 3. Scan configured remote web repository for online OTA updates
+  // 3. Scan local dev update servers (if configured)
+  scan_dev_servers(found_packages, current_ver);
+
+  // 4. Scan configured remote web repository for online OTA updates
   scan_remote_repo(found_packages, current_ver);
 
   spdlog::info("SWUpdate scanner found {} package(s)", found_packages.size());
