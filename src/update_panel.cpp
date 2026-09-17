@@ -3,6 +3,7 @@
 #include "spdlog/spdlog.h"
 #include "subprocess.hpp"
 
+#include "hv/json.hpp"
 #include <algorithm>
 #include <fstream>
 #include <sstream>
@@ -16,6 +17,7 @@
 
 namespace fs = std::experimental::filesystem;
 namespace sp = subprocess;
+using json = nlohmann::json;
 
 LV_IMG_DECLARE(back);
 LV_IMG_DECLARE(refresh_img);
@@ -220,19 +222,132 @@ static std::vector<int> parse_version_nums(const std::string &v) {
 }
 
 static int compare_versions(const std::string &v1, const std::string &v2) {
-  if (v1.empty() || v2.empty()) return 0;
-  if (v1 == v2) return 0;
-  if (!is_valid_semver(v1) || !is_valid_semver(v2)) return 0;
-  auto nums1 = parse_version_nums(v1);
-  auto nums2 = parse_version_nums(v2);
-  size_t max_len = std::max(nums1.size(), nums2.size());
+  auto n1 = parse_version_nums(v1);
+  auto n2 = parse_version_nums(v2);
+  size_t max_len = std::max(n1.size(), n2.size());
+  while (n1.size() < max_len) n1.push_back(0);
+  while (n2.size() < max_len) n2.push_back(0);
   for (size_t i = 0; i < max_len; ++i) {
-    int n1 = i < nums1.size() ? nums1[i] : 0;
-    int n2 = i < nums2.size() ? nums2[i] : 0;
-    if (n1 > n2) return 1;
-    if (n1 < n2) return -1;
+    if (n1[i] > n2[i]) return 1;
+    if (n1[i] < n2[i]) return -1;
   }
   return 0;
+}
+
+static bool is_git_commit_hash(const std::string &v) {
+  if (v.empty() || v.length() < 7 || v.length() > 40) return false;
+  for (char c : v) {
+    if (!std::isxdigit(static_cast<unsigned char>(c))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+static std::string get_remote_manifest_url() {
+  std::vector<std::string> conf_paths = {
+    "/usr/data/nebulaos/openke-update.conf",
+    "/etc/openke-update.conf"
+  };
+  for (const auto &cp : conf_paths) {
+    std::ifstream f(cp);
+    if (f.is_open()) {
+      std::string line;
+      while (std::getline(f, line)) {
+        if (line.rfind("remote_manifest_url=", 0) == 0) {
+          std::string u = line.substr(20);
+          if (!u.empty()) return u;
+        }
+      }
+    }
+  }
+  return "https://raw.githubusercontent.com/OpenKlipperEdition/OpenKE/main/manifests/releases.json";
+}
+
+static void scan_remote_repo(std::vector<UpdatePackageItem> &packages, const std::string &current_ver) {
+  std::string manifest_url = get_remote_manifest_url();
+  std::string tmp_manifest = "/tmp/openke-remote-releases.json";
+  unlink(tmp_manifest.c_str());
+
+  std::string cmd = "curl -s -k -m 4 -L '" + manifest_url + "' -o '" + tmp_manifest + "' 2>/dev/null";
+  int rc = system(cmd.c_str());
+  if (rc != 0 || !fs::exists(tmp_manifest) || fs::file_size(tmp_manifest) == 0) {
+    return;
+  }
+
+  std::ifstream f(tmp_manifest);
+  if (!f.is_open()) return;
+
+  try {
+    json j = json::parse(f);
+
+    // Format 1: OpenKE manifests/releases.json
+    if (j.contains("releases") && j["releases"].is_array()) {
+      for (const auto &rel : j["releases"]) {
+        if (!rel.contains("url") || !rel.contains("version")) continue;
+
+        UpdatePackageItem item;
+        item.file_path = rel.value("url", "");
+        item.file_name = rel.value("filename", "openke-update.swu");
+        item.version = rel.value("version", "");
+        item.expected_sha256 = rel.value("sha256", "");
+        item.release_notes = rel.value("release_notes", "");
+        item.location_tag = "Web Repo (OTA)";
+        item.is_remote = true;
+
+        std::string rel_type = rel.value("type", "stable");
+        item.is_nightly = (rel_type == "nightly" || is_git_commit_hash(item.version) || item.file_name.find("nightly") != std::string::npos);
+
+        uint64_t sz_bytes = rel.value("size_bytes", (uint64_t)0);
+        if (sz_bytes > 0) {
+          std::stringstream ss;
+          ss << std::fixed << std::setprecision(1) << (static_cast<double>(sz_bytes) / (1024.0 * 1024.0)) << " MB";
+          item.file_size = ss.str();
+        } else {
+          item.file_size = "Remote";
+        }
+
+        if (item.is_nightly) {
+          item.status_badge = "Nightly (" + (item.version.empty() ? "Build" : item.version.substr(0, 7)) + ")";
+          item.version_diff = 0;
+        } else if (!item.version.empty() && !current_ver.empty()) {
+          if (is_valid_semver(item.version) && is_valid_semver(current_ver)) {
+            item.version_diff = compare_versions(item.version, current_ver);
+            if (item.version_diff > 0) {
+              item.status_badge = "Newer (Upgrade)";
+            } else if (item.version_diff == 0) {
+              item.status_badge = "Current Version";
+            } else {
+              item.status_badge = "Older (Downgrade)";
+            }
+          } else if (item.version == current_ver) {
+            item.version_diff = 0;
+            item.status_badge = "Current Version";
+          } else {
+            item.version_diff = 0;
+            item.status_badge = "Firmware Package";
+          }
+        } else {
+          item.status_badge = "Firmware Package";
+        }
+
+        bool dup = false;
+        for (const auto &p : packages) {
+          if (p.file_path == item.file_path || (p.is_remote && p.version == item.version)) {
+            dup = true;
+            break;
+          }
+        }
+        if (!dup) {
+          packages.push_back(item);
+        }
+      }
+    }
+  } catch (const std::exception &e) {
+    spdlog::warn("Remote update manifest parse error: {}", e.what());
+  }
+
+  unlink(tmp_manifest.c_str());
 }
 
 void UpdatePanel::scan_updates() {
@@ -293,8 +408,15 @@ void UpdatePanel::scan_updates() {
             item.file_name = entry.path().filename().string();
             item.location_tag = tag;
             item.version = parse_swu_version(item.file_path, item.file_name);
+            item.is_remote = false;
 
-            if (!item.version.empty() && !current_ver.empty()) {
+            bool is_nightly_build = is_git_commit_hash(item.version) || (item.file_name.find("nightly") != std::string::npos);
+            item.is_nightly = is_nightly_build;
+
+            if (item.is_nightly) {
+              item.status_badge = "Nightly (" + (item.version.empty() ? "Build" : item.version.substr(0, 7)) + ")";
+              item.version_diff = 0;
+            } else if (!item.version.empty() && !current_ver.empty()) {
               if (is_valid_semver(item.version) && is_valid_semver(current_ver)) {
                 item.version_diff = compare_versions(item.version, current_ver);
                 if (item.version_diff > 0) {
@@ -338,6 +460,9 @@ void UpdatePanel::scan_updates() {
     }
   }
 
+  // 3. Scan configured remote web repository for online OTA updates
+  scan_remote_repo(found_packages, current_ver);
+
   spdlog::info("SWUpdate scanner found {} package(s)", found_packages.size());
 }
 
@@ -380,7 +505,7 @@ void UpdatePanel::build_package_list() {
     lv_obj_align(name_lbl, LV_ALIGN_TOP_LEFT, 0, 0);
 
     // Version Badge label (between filename and size/source)
-    if (!pkg.version.empty()) {
+    if (!pkg.version.empty() || pkg.is_nightly) {
       lv_obj_t *badge = lv_obj_create(card);
       lv_obj_set_size(badge, LV_SIZE_CONTENT, 20);
       lv_obj_set_style_pad_hor(badge, 6, 0);
@@ -389,7 +514,9 @@ void UpdatePanel::build_package_list() {
       lv_obj_clear_flag(badge, LV_OBJ_FLAG_SCROLLABLE);
       lv_obj_align(badge, LV_ALIGN_TOP_LEFT, 0, 24);
 
-      if (pkg.version_diff > 0) {
+      if (pkg.is_nightly) {
+        lv_obj_set_style_bg_color(badge, lv_palette_main(LV_PALETTE_PURPLE), 0);
+      } else if (pkg.version_diff > 0) {
         lv_obj_set_style_bg_color(badge, lv_palette_main(LV_PALETTE_GREEN), 0);
       } else if (pkg.version_diff == 0) {
         lv_obj_set_style_bg_color(badge, lv_palette_darken(LV_PALETTE_GREY, 2), 0);
@@ -398,7 +525,12 @@ void UpdatePanel::build_package_list() {
       }
 
       lv_obj_t *badge_lbl = lv_label_create(badge);
-      std::string b_text = "v" + pkg.version + " (" + pkg.status_badge + ")";
+      std::string b_text;
+      if (pkg.is_nightly) {
+        b_text = pkg.status_badge;
+      } else {
+        b_text = "v" + pkg.version + " (" + pkg.status_badge + ")";
+      }
       lv_label_set_text(badge_lbl, b_text.c_str());
       lv_obj_set_style_text_font(badge_lbl, &lv_font_montserrat_12, 0);
       lv_obj_center(badge_lbl);
@@ -412,7 +544,7 @@ void UpdatePanel::build_package_list() {
     lv_obj_set_style_text_color(meta_lbl, lv_palette_lighten(LV_PALETTE_GREY, 1), 0);
     lv_obj_align(meta_lbl, LV_ALIGN_BOTTOM_LEFT, 0, 0);
 
-    // Flash / Install Button
+    // Flash / Install / Download Button
     lv_obj_t *btn = lv_btn_create(card);
     lv_obj_set_size(btn, 110, 42);
     lv_obj_align(btn, LV_ALIGN_RIGHT_MID, 0, 0);
@@ -424,7 +556,11 @@ void UpdatePanel::build_package_list() {
     lv_obj_set_style_radius(btn, 6, 0);
 
     lv_obj_t *btn_lbl = lv_label_create(btn);
-    lv_label_set_text(btn_lbl, "Install");
+    if (pkg.is_remote) {
+      lv_label_set_text(btn_lbl, "Download");
+    } else {
+      lv_label_set_text(btn_lbl, "Install");
+    }
     lv_obj_set_style_text_font(btn_lbl, &lv_font_montserrat_14, 0);
     lv_obj_center(btn_lbl);
 
@@ -551,18 +687,25 @@ void UpdatePanel::show_confirmation_modal(const UpdatePackageItem &pkg) {
   lv_obj_clear_flag(modal_cont, LV_OBJ_FLAG_SCROLLABLE);
 
   lv_obj_t *title = lv_label_create(modal_cont);
-  lv_label_set_text(title, "Confirm System Firmware Update");
+  lv_label_set_text(title, pkg.is_remote ? "Confirm Remote Firmware Update" : "Confirm System Firmware Update");
   lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
   lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 0);
 
   lv_obj_t *desc = lv_label_create(modal_cont);
   std::string current_ver = get_current_os_version();
-  std::string pkg_ver_str = pkg.version.empty() ? "Unspecified" : ("v" + pkg.version + " (" + pkg.status_badge + ")");
+  std::string pkg_ver_str;
+  if (pkg.is_nightly) {
+    pkg_ver_str = pkg.status_badge;
+  } else if (!pkg.version.empty()) {
+    pkg_ver_str = "v" + pkg.version + " (" + pkg.status_badge + ")";
+  } else {
+    pkg_ver_str = "Unspecified";
+  }
   std::string info_text = "Package: " + pkg.file_name + " (" + pkg.file_size + ")\n"
                           "• Version: " + pkg_ver_str + "\n"
                           "• Installed: OpenKE v" + current_ver + " (" + active_slot + ")\n"
                           "• Target Slot: " + target_slot + "\n"
-                          "• Preflight: Verifies hardware revision & SHA256 hashes\n"
+                          "• Source: " + pkg.location_tag + "\n"
                           "• Safety: Automatic backup of user config prior to write\n"
                           "• Reboot required upon completion.";
   if (printing) {
@@ -596,7 +739,13 @@ void UpdatePanel::show_confirmation_modal(const UpdatePackageItem &pkg) {
     lv_obj_add_state(confirm_btn, LV_STATE_DISABLED);
   }
   lv_obj_t *confirm_lbl = lv_label_create(confirm_btn);
-  lv_label_set_text(confirm_lbl, printing ? "Busy (Printing)" : "Flash Update");
+  if (printing) {
+    lv_label_set_text(confirm_lbl, "Busy (Printing)");
+  } else if (pkg.is_remote) {
+    lv_label_set_text(confirm_lbl, "Download & Flash");
+  } else {
+    lv_label_set_text(confirm_lbl, "Flash Update");
+  }
   lv_obj_center(confirm_lbl);
 
   lv_obj_add_event_cb(confirm_btn, [](lv_event_t *e) {
@@ -626,7 +775,7 @@ void UpdatePanel::show_progress_view(const UpdatePackageItem &pkg) {
   lv_obj_clear_flag(modal_cont, LV_OBJ_FLAG_SCROLLABLE);
 
   lv_obj_t *title = lv_label_create(modal_cont);
-  lv_label_set_text(title, "Flashing Firmware Update...");
+  lv_label_set_text(title, pkg.is_remote ? "Downloading & Installing Update..." : "Flashing Firmware Update...");
   lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
   lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 0);
 
@@ -643,7 +792,7 @@ void UpdatePanel::show_progress_view(const UpdatePackageItem &pkg) {
   lv_obj_align(progress_label, LV_ALIGN_TOP_MID, 0, 70);
 
   status_label = lv_label_create(modal_cont);
-  lv_label_set_text(status_label, "Initializing SWUpdate...");
+  lv_label_set_text(status_label, pkg.is_remote ? "Connecting to download server..." : "Initializing SWUpdate...");
   lv_obj_set_style_text_font(status_label, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(status_label, lv_palette_lighten(LV_PALETTE_GREY, 2), 0);
   lv_obj_align(status_label, LV_ALIGN_TOP_LEFT, 0, 95);
@@ -686,17 +835,103 @@ void UpdatePanel::start_update(const UpdatePackageItem &pkg) {
   progress_percent = 0;
   current_step = 0;
   total_steps = 0;
-  status_message = "Starting SWUpdate worker...";
+  status_message = pkg.is_remote ? "Starting download..." : "Starting SWUpdate worker...";
 
   if (worker_thread.joinable()) {
     worker_thread.join();
   }
 
-  worker_thread = std::thread(&UpdatePanel::execute_update_thread, this, pkg.file_path);
+  worker_thread = std::thread(&UpdatePanel::execute_update_thread, this, pkg);
 }
 
-void UpdatePanel::execute_update_thread(std::string swu_path) {
-  spdlog::info("SWUpdate worker executing for {}", swu_path);
+void UpdatePanel::execute_update_thread(UpdatePackageItem pkg) {
+  spdlog::info("SWUpdate worker executing for {} (remote: {})", pkg.file_name, pkg.is_remote);
+
+  std::string local_swu_path = pkg.file_path;
+  bool is_temp_download = false;
+
+  if (pkg.is_remote) {
+    is_temp_download = true;
+    std::string staging_dir = "/usr/data/deploy-staging";
+    try {
+      fs::create_directories(staging_dir);
+    } catch (...) {}
+
+    local_swu_path = staging_dir + "/openke-remote-update.swu";
+    unlink(local_swu_path.c_str());
+
+    {
+      std::lock_guard<std::mutex> lock(status_mutex);
+      status_message = "Downloading firmware package...";
+    }
+    progress_percent = 5;
+
+    std::string curl_cmd = "curl -fSL -k --connect-timeout 20 -m 1200 '" + pkg.file_path + "' -o '" + local_swu_path + "' > /tmp/curl-download.log 2>&1";
+
+    try {
+      auto dl_proc = sp::Popen(curl_cmd, sp::shell{true});
+      while (dl_proc.poll() == -1) {
+        usleep(250000); // 250ms
+        if (fs::exists(local_swu_path)) {
+          uintmax_t cur_sz = fs::file_size(local_swu_path);
+          double mb = static_cast<double>(cur_sz) / (1024.0 * 1024.0);
+          std::stringstream ss;
+          ss << "Downloading: " << std::fixed << std::setprecision(1) << mb << " MB";
+          {
+            std::lock_guard<std::mutex> lock(status_mutex);
+            status_message = ss.str();
+          }
+          progress_percent = std::min(progress_percent + 1, 45);
+        }
+      }
+
+      int dl_rc = dl_proc.retcode();
+      if (dl_rc != 0 || !fs::exists(local_swu_path) || fs::file_size(local_swu_path) < 1024) {
+        std::lock_guard<std::mutex> lock(status_mutex);
+        status_message = "Download failed (curl error " + std::to_string(dl_rc) + "). Check network connection.";
+        state = UpdateState::FAILED;
+        unlink(local_swu_path.c_str());
+        return;
+      }
+    } catch (const std::exception &e) {
+      std::lock_guard<std::mutex> lock(status_mutex);
+      status_message = std::string("Download error: ") + e.what();
+      state = UpdateState::FAILED;
+      unlink(local_swu_path.c_str());
+      return;
+    }
+
+    progress_percent = 50;
+
+    if (!pkg.expected_sha256.empty()) {
+      {
+        std::lock_guard<std::mutex> lock(status_mutex);
+        status_message = "Verifying package checksum...";
+      }
+
+      std::string sha_cmd = "sha256sum '" + local_swu_path + "' | awk '{print $1}'";
+      std::string computed_sha;
+      try {
+        auto sha_proc = sp::Popen(sha_cmd, sp::shell{true}, sp::output{sp::PIPE});
+        auto out = sha_proc.communicate();
+        if (out.first.length > 0 && out.first.buf.data() != nullptr) {
+          computed_sha = std::string(out.first.buf.data(), out.first.length);
+        }
+        while (!computed_sha.empty() && (computed_sha.back() == '\n' || computed_sha.back() == '\r' || computed_sha.back() == ' ')) {
+          computed_sha.pop_back();
+        }
+      } catch (...) {}
+
+      if (!computed_sha.empty() && computed_sha != pkg.expected_sha256) {
+        spdlog::error("SHA256 mismatch! Expected: {}, Got: {}", pkg.expected_sha256, computed_sha);
+        std::lock_guard<std::mutex> lock(status_mutex);
+        status_message = "Checksum verification failed! Package may be corrupted.";
+        state = UpdateState::FAILED;
+        unlink(local_swu_path.c_str());
+        return;
+      }
+    }
+  }
 
   std::string target_slot = is_slot2_active() ? "slot1" : "slot2";
   std::string selection_arg = "stable," + target_slot;
@@ -709,9 +944,9 @@ void UpdatePanel::execute_update_thread(std::string swu_path) {
   std::string log_file = "/tmp/swupdate.log";
   std::string cmd;
   if (fs::exists("/usr/bin/swupdate")) {
-    cmd = "/usr/bin/swupdate -i '" + swu_path + "' -e '" + selection_arg + "' -v > " + log_file + " 2>&1";
+    cmd = "/usr/bin/swupdate -i '" + local_swu_path + "' -e '" + selection_arg + "' -v > " + log_file + " 2>&1";
   } else {
-    cmd = "swupdate -i '" + swu_path + "' -e '" + selection_arg + "' -v > " + log_file + " 2>&1";
+    cmd = "swupdate -i '" + local_swu_path + "' -e '" + selection_arg + "' -v > " + log_file + " 2>&1";
   }
 
   int rc = -1;
@@ -725,6 +960,10 @@ void UpdatePanel::execute_update_thread(std::string swu_path) {
 
     rc = p.retcode();
 
+    if (is_temp_download) {
+      unlink(local_swu_path.c_str());
+    }
+
     if (rc == 0) {
       progress_percent = 100;
       std::lock_guard<std::mutex> lock(status_mutex);
@@ -737,7 +976,6 @@ void UpdatePanel::execute_update_thread(std::string swu_path) {
         std::stringstream ss;
         ss << lf.rdbuf();
         std::string full_log = ss.str();
-        // Keep last 300 characters
         if (full_log.size() > 300) {
           err_output = full_log.substr(full_log.size() - 300);
         } else {
@@ -749,6 +987,9 @@ void UpdatePanel::execute_update_thread(std::string swu_path) {
       state = UpdateState::FAILED;
     }
   } catch (const std::exception &e) {
+    if (is_temp_download) {
+      unlink(local_swu_path.c_str());
+    }
     std::lock_guard<std::mutex> lock(status_mutex);
     status_message = std::string("Exception executing swupdate: ") + e.what();
     state = UpdateState::FAILED;

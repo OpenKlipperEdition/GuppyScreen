@@ -20,6 +20,10 @@ struct UpdatePackageItem {
   std::string location_tag;
   std::string version;
   std::string status_badge;
+  std::string expected_sha256;
+  std::string release_notes;
+  bool is_remote{false};
+  bool is_nightly{false};
   int version_diff{0}; // >0 newer, 0 same, <0 older
   time_t modified_time{0};
 };
@@ -63,7 +67,7 @@ class UpdatePanel {
   void show_confirmation_modal(const UpdatePackageItem &pkg);
   void show_progress_view(const UpdatePackageItem &pkg);
   void close_modal();
-  void execute_update_thread(std::string swu_path);
+  void execute_update_thread(UpdatePackageItem pkg);
 
   KWebSocketClient &ws;
   lv_obj_t *cont{nullptr};
