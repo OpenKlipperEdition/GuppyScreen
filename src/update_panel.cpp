@@ -803,8 +803,9 @@ void UpdatePanel::build_package_list() {
 
 void UpdatePanel::close_usb_detect_popup() {
   if (usb_detect_mbox != nullptr) {
-    lv_msgbox_close(usb_detect_mbox);
+    lv_obj_t *m = usb_detect_mbox;
     usb_detect_mbox = nullptr;
+    lv_msgbox_close(m);
   }
 }
 
@@ -814,23 +815,51 @@ void UpdatePanel::show_usb_detect_popup(const UpdatePackageItem &pkg) {
   pending_usb_package = pkg;
 
   static const char *btns[] = {"View Update", "Dismiss", ""};
-  std::string body = "Found firmware update package on USB:\n\n" +
+  std::string body = "Found firmware update package on USB:\n" +
                      pkg.file_name + " (" + pkg.file_size + ")\n\n"
-                     "Open the System Update panel to view details and install?";
+                     "Open System Update to view details and install?";
 
-  usb_detect_mbox = lv_msgbox_create(NULL, "USB Firmware Update Detected",
+  usb_detect_mbox = lv_msgbox_create(NULL, "USB Update Detected",
                                      body.c_str(), btns, false);
-  KUtils::style_lock_mbox(usb_detect_mbox, 90);
+  KUtils::style_dialog_msgbox(usb_detect_mbox);
+
+  lv_obj_set_size(usb_detect_mbox, LV_PCT(88), LV_PCT(82));
+  lv_obj_center(usb_detect_mbox);
+
+  lv_obj_t *title = ((lv_msgbox_t *)usb_detect_mbox)->title;
+  if (title != NULL) {
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_14, 0);
+    lv_obj_set_width(title, LV_PCT(100));
+    lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
+  }
+
+  lv_obj_t *txt = ((lv_msgbox_t *)usb_detect_mbox)->text;
+  if (txt != NULL) {
+    lv_obj_set_style_text_font(txt, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_align(txt, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_width(txt, LV_PCT(100));
+  }
+
+  lv_obj_t *btnm = lv_msgbox_get_btns(usb_detect_mbox);
+  if (btnm != NULL) {
+    lv_obj_add_flag(btnm, LV_OBJ_FLAG_FLOATING);
+    lv_obj_align(btnm, LV_ALIGN_BOTTOM_MID, 0, -4);
+    auto hscale = (double)lv_disp_get_physical_ver_res(NULL) / 480.0;
+    lv_obj_set_size(btnm, LV_PCT(92), 44 * hscale);
+  }
 
   auto cb = [](lv_event_t *e) {
     auto *self = static_cast<UpdatePanel*>(e->user_data);
-    lv_obj_t *mbox = lv_obj_get_parent(lv_event_get_target(e));
+    lv_obj_t *mbox = lv_event_get_current_target(e);
     uint16_t btn_idx = lv_msgbox_get_active_btn(mbox);
+    UpdatePackageItem pkg = self->pending_usb_package;
+
+    self->close_usb_detect_popup();
+
     if (btn_idx == 0) { // "View Update"
       self->foreground();
+      self->show_confirmation_modal(pkg);
     }
-    self->usb_detect_mbox = nullptr;
-    lv_msgbox_close(mbox);
   };
 
   lv_obj_add_event_cb(usb_detect_mbox, cb, LV_EVENT_VALUE_CHANGED, this);
@@ -839,6 +868,13 @@ void UpdatePanel::show_usb_detect_popup(const UpdatePackageItem &pkg) {
 void UpdatePanel::check_usb_auto_detect() {
   if (state != UpdateState::IDLE) return;
   if (KUtils::is_printing()) return;
+
+  if (usb_detect_mbox != nullptr) {
+    if (!fs::exists(pending_usb_package.file_path)) {
+      close_usb_detect_popup();
+    }
+    return;
+  }
 
   scan_updates();
 
@@ -853,11 +889,6 @@ void UpdatePanel::check_usb_auto_detect() {
     } else {
       ++it;
     }
-  }
-
-  if (usb_detect_mbox != nullptr &&
-      current_paths.find(pending_usb_package.file_path) == current_paths.end()) {
-    close_usb_detect_popup();
   }
 
   for (const auto &pkg : found_packages) {
