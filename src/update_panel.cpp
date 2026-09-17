@@ -60,8 +60,10 @@ UpdatePanel::UpdatePanel(KWebSocketClient &c)
   lv_obj_set_style_border_color(top_bar, lv_palette_darken(LV_PALETTE_GREY, 3), 0);
   lv_obj_set_style_bg_opa(top_bar, LV_OPA_TRANSP, 0);
 
-  lv_label_set_text(title_label, "System Firmware Update (SWUpdate)");
+  lv_label_set_text(title_label, "Firmware Update");
   lv_obj_set_style_text_font(title_label, &lv_font_montserrat_16, 0);
+  lv_obj_set_width(title_label, 300);
+  lv_label_set_long_mode(title_label, LV_LABEL_LONG_DOT);
   lv_obj_align(title_label, LV_ALIGN_LEFT_MID, 10, 0);
   lv_obj_align(scan_btn.get_container(), LV_ALIGN_RIGHT_MID, -70, 0);
   lv_obj_align(back_btn.get_container(), LV_ALIGN_RIGHT_MID, 0, 0);
@@ -190,6 +192,19 @@ static std::string parse_swu_version(const std::string &swu_path, const std::str
   return "";
 }
 
+static bool is_valid_semver(const std::string &v) {
+  if (v.empty()) return false;
+  bool has_digit = false;
+  for (char c : v) {
+    if (std::isdigit(static_cast<unsigned char>(c))) {
+      has_digit = true;
+    } else if (c != '.') {
+      return false;
+    }
+  }
+  return has_digit;
+}
+
 static std::vector<int> parse_version_nums(const std::string &v) {
   std::vector<int> nums;
   std::stringstream ss(v);
@@ -207,6 +222,7 @@ static std::vector<int> parse_version_nums(const std::string &v) {
 static int compare_versions(const std::string &v1, const std::string &v2) {
   if (v1.empty() || v2.empty()) return 0;
   if (v1 == v2) return 0;
+  if (!is_valid_semver(v1) || !is_valid_semver(v2)) return 0;
   auto nums1 = parse_version_nums(v1);
   auto nums2 = parse_version_nums(v2);
   size_t max_len = std::max(nums1.size(), nums2.size());
@@ -279,13 +295,21 @@ void UpdatePanel::scan_updates() {
             item.version = parse_swu_version(item.file_path, item.file_name);
 
             if (!item.version.empty() && !current_ver.empty()) {
-              item.version_diff = compare_versions(item.version, current_ver);
-              if (item.version_diff > 0) {
-                item.status_badge = "Newer (Upgrade)";
-              } else if (item.version_diff == 0) {
+              if (is_valid_semver(item.version) && is_valid_semver(current_ver)) {
+                item.version_diff = compare_versions(item.version, current_ver);
+                if (item.version_diff > 0) {
+                  item.status_badge = "Newer (Upgrade)";
+                } else if (item.version_diff == 0) {
+                  item.status_badge = "Current Version";
+                } else {
+                  item.status_badge = "Older (Downgrade)";
+                }
+              } else if (item.version == current_ver) {
+                item.version_diff = 0;
                 item.status_badge = "Current Version";
               } else {
-                item.status_badge = "Older (Downgrade)";
+                item.version_diff = 0;
+                item.status_badge = "Firmware Package";
               }
             } else {
               item.status_badge = "Firmware Package";
@@ -322,7 +346,7 @@ void UpdatePanel::build_package_list() {
 
   std::string current_ver = get_current_os_version();
   std::string slot_name = is_slot2_active() ? "Slot 2" : "Slot 1";
-  std::string title_str = "Firmware Update (SWUpdate) | Installed: v" + current_ver + " (" + slot_name + ")";
+  std::string title_str = "Firmware Update (v" + current_ver + " • " + slot_name + ")";
   lv_label_set_text(title_label, title_str.c_str());
 
   if (found_packages.empty()) {
