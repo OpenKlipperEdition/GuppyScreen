@@ -34,6 +34,12 @@ class PowerPanel {
     // and sets `display` to its basename. Reads Creality's saved-state file when local.
     std::string recoverable_print(std::string &display);
 
+    enum class PlrBackend {
+      NONE,
+      NEBULAOS,
+      CREALITY
+    };
+
     KWebSocketClient &ws;
     std::mutex &lv_lock;
 
@@ -47,6 +53,7 @@ class PowerPanel {
     lv_obj_t *recovery_resume_btn = nullptr;
     lv_obj_t *recovery_dismiss_btn = nullptr;
     std::string recovery_relpath;
+    PlrBackend plr_backend = PlrBackend::NONE;
 
 };
 

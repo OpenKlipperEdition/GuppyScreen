@@ -66,38 +66,80 @@ void PowerPanel::build_recovery_section() {
   lv_obj_add_flag(recovery_dismiss_btn, LV_OBJ_FLAG_HIDDEN);
 }
 
+#include <unistd.h>
+
 std::string PowerPanel::recoverable_print(std::string &display) {
   display = "";
+  plr_backend = PlrBackend::NONE;
   // The saved-state file lives on the printer's filesystem; only readable when the UI
   // runs locally on the machine (not the desktop simulator / remote).
   if (!KUtils::is_running_local()) {
     return "";
   }
-  std::ifstream f("/usr/data/creality/userdata/config/print_file_name.json");
-  if (!f.good()) {
-    return "";
+
+  // 1. Try NebulaOS PLR sidecars first
+  const std::vector<std::string> plr_dirs = {
+    "/usr/data/nebulaos/printer_data/plr",
+    "/opt/printer_data/plr",
+    "/usr/data/printer_data/plr"
+  };
+
+  int highest_gen = -1;
+  std::string best_nebula_file = "";
+
+  for (const auto &dir : plr_dirs) {
+    for (const char *fname : {"state-a.json", "state-b.json"}) {
+      std::string fullpath = dir + "/" + fname;
+      std::ifstream f(fullpath);
+      if (!f.good()) continue;
+      try {
+        json j = json::parse(f, nullptr, false);
+        if (!j.is_discarded() && j.contains("schema_version") && j.contains("file")) {
+          int gen = j.value("generation", -1);
+          std::string fp = j["file"].value("path", "");
+          if (!fp.empty() && gen > highest_gen) {
+            highest_gen = gen;
+            best_nebula_file = fp;
+          }
+        }
+      } catch (...) {}
+    }
   }
-  try {
-    json j = json::parse(f, nullptr, false);
-    if (j.is_discarded() || !j.contains("file_path")) {
-      return "";
-    }
-    std::string fp = j["file_path"].template get<std::string>();
-    if (fp.empty()) {
-      return "";
-    }
-    // SDCARD_PRINT_FILE wants the path relative to the gcodes dir.
-    std::string rel = fp;
-    auto pos = fp.find("/gcodes/");
+
+  if (!best_nebula_file.empty() && highest_gen >= 0) {
+    plr_backend = PlrBackend::NEBULAOS;
+    std::string rel = best_nebula_file;
+    auto pos = rel.find("/gcodes/");
     if (pos != std::string::npos) {
-      rel = fp.substr(pos + 8); // strlen("/gcodes/")
+      rel = rel.substr(pos + 8);
     }
     auto slash = rel.find_last_of('/');
     display = (slash == std::string::npos) ? rel : rel.substr(slash + 1);
     return rel;
-  } catch (...) {
-    return "";
   }
+
+  // 2. Fallback to legacy Creality PLR
+  std::ifstream f("/usr/data/creality/userdata/config/print_file_name.json");
+  if (f.good()) {
+    try {
+      json j = json::parse(f, nullptr, false);
+      if (!j.is_discarded() && j.contains("file_path")) {
+        std::string fp = j["file_path"].template get<std::string>();
+        if (!fp.empty()) {
+          plr_backend = PlrBackend::CREALITY;
+          std::string rel = fp;
+          auto pos = fp.find("/gcodes/");
+          if (pos != std::string::npos) {
+            rel = fp.substr(pos + 8); // strlen("/gcodes/")
+          }
+          auto slash = rel.find_last_of('/');
+          display = (slash == std::string::npos) ? rel : rel.substr(slash + 1);
+          return rel;
+        }
+      }
+    } catch (...) {}
+  }
+  return "";
 }
 
 void PowerPanel::refresh_recovery() {
@@ -230,10 +272,14 @@ void PowerPanel::handle_callback(lv_event_t *e) {
       lv_obj_move_background(cont);
     } else if (btn == recovery_resume_btn) {
       if (!recovery_relpath.empty()) {
-        // Creality's virtual_sdcard restores the saved breakpoint (reheat + position)
-        // when ISCONTINUEPRINT=1; if no valid breakpoint exists it safely starts the
-        // file normally rather than crashing.
-        ws.gcode_script("SDCARD_PRINT_FILE FILENAME=\"" + recovery_relpath + "\" ISCONTINUEPRINT=1");
+        if (plr_backend == PlrBackend::NEBULAOS) {
+          // NebulaOS PLR: restores coordinates, heaters, mesh, and seeks virtual_sdcard,
+          // then M24 starts printing.
+          ws.gcode_script("NEBULAOS_PLR_RESUME ALLOW_UNSAFE=1\nM24");
+        } else {
+          // Creality legacy PLR: virtual_sdcard breakpoint restore
+          ws.gcode_script("SDCARD_PRINT_FILE FILENAME=\"" + recovery_relpath + "\" ISCONTINUEPRINT=1");
+        }
         KUtils::notify_toast("Resuming print after power loss...", 2500);
         lv_label_set_text(recovery_status, "Resuming...");
         lv_obj_add_flag(recovery_resume_btn, LV_OBJ_FLAG_HIDDEN);
@@ -241,6 +287,21 @@ void PowerPanel::handle_callback(lv_event_t *e) {
         lv_obj_move_background(cont);
       }
     } else if (btn == recovery_dismiss_btn) {
+      if (plr_backend == PlrBackend::NEBULAOS) {
+        ws.gcode_script("NEBULAOS_PLR_DISCARD");
+        // Clear sidecar files from disk
+        const std::vector<std::string> plr_dirs = {
+          "/usr/data/nebulaos/printer_data/plr",
+          "/opt/printer_data/plr",
+          "/usr/data/printer_data/plr"
+        };
+        for (const auto &dir : plr_dirs) {
+          unlink((dir + "/state-a.json").c_str());
+          unlink((dir + "/state-b.json").c_str());
+        }
+      }
+      recovery_relpath = "";
+      plr_backend = PlrBackend::NONE;
       lv_label_set_text(recovery_status, "No interrupted print to recover.");
       lv_obj_add_flag(recovery_resume_btn, LV_OBJ_FLAG_HIDDEN);
       lv_obj_add_flag(recovery_dismiss_btn, LV_OBJ_FLAG_HIDDEN);
