@@ -44,7 +44,7 @@ class UpdatePanel {
   void foreground();
   void background();
 
-  void scan_updates();
+  void scan_updates(bool include_network = false);
   void start_update(const UpdatePackageItem &pkg);
 
  private:

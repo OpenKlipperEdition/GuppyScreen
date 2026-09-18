@@ -100,7 +100,7 @@ UpdatePanel::~UpdatePanel() {
 
 void UpdatePanel::foreground() {
   close_usb_detect_popup();
-  scan_updates();
+  scan_updates(true);
   build_package_list();
   lv_obj_move_foreground(cont);
 }
@@ -120,7 +120,7 @@ void UpdatePanel::handle_callback(lv_event_t *event) {
     if (target == back_btn.get_container()) {
       background();
     } else if (target == scan_btn.get_container()) {
-      scan_updates();
+      scan_updates(true);
       build_package_list();
     }
   }
@@ -563,13 +563,10 @@ static void scan_dev_servers(std::vector<UpdatePackageItem> &packages, const std
   }
 }
 
-void UpdatePanel::scan_updates() {
-  found_packages.clear();
-  std::string current_ver = get_current_os_version();
-
+static void scan_local_storage(std::vector<UpdatePackageItem> &packages, const std::string &current_ver, bool usb_only) {
   std::vector<std::pair<std::string, std::string>> search_paths;
 
-  // 1. Dynamic scan from /proc/mounts for any connected USB storage (/dev/sd*)
+  // 1. Dynamic scan from /proc/mounts for any connected USB storage (/dev/sd* or /dev/mmcblk1*)
   std::ifstream mounts("/proc/mounts");
   if (mounts.is_open()) {
     std::string dev, mountpoint, fstype, opts;
@@ -582,27 +579,33 @@ void UpdatePanel::scan_updates() {
     }
   }
 
-  // 2. Standard filesystem mount and storage paths
-  std::vector<std::pair<std::string, std::string>> fixed_paths = {
-    {"/opt/printer_data/gcodes/USB", "USB Drive"},
-    {"/tmp/udisk", "USB Drive"},
-    {"/media", "USB Drive"},
-    {"/mnt", "USB Drive"},
-    {"/tmp/usb", "USB Drive"},
-    {"/usr/data/deploy-staging", "Local Staging"},
-    {"/usr/data", "Internal Storage"}
-  };
+  if (usb_only && search_paths.empty()) {
+    return;
+  }
 
-  for (const auto &p : fixed_paths) {
-    bool already_added = false;
-    for (const auto &sp : search_paths) {
-      if (sp.first == p.first) {
-        already_added = true;
-        break;
+  // 2. Standard filesystem mount and storage paths (if not usb_only)
+  if (!usb_only) {
+    std::vector<std::pair<std::string, std::string>> fixed_paths = {
+      {"/opt/printer_data/gcodes/USB", "USB Drive"},
+      {"/tmp/udisk", "USB Drive"},
+      {"/media", "USB Drive"},
+      {"/mnt", "USB Drive"},
+      {"/tmp/usb", "USB Drive"},
+      {"/usr/data/deploy-staging", "Local Staging"},
+      {"/usr/data", "Internal Storage"}
+    };
+
+    for (const auto &p : fixed_paths) {
+      bool already_added = false;
+      for (const auto &sp : search_paths) {
+        if (sp.first == p.first) {
+          already_added = true;
+          break;
+        }
       }
-    }
-    if (!already_added) {
-      search_paths.push_back(p);
+      if (!already_added) {
+        search_paths.push_back(p);
+      }
     }
   }
 
@@ -656,14 +659,14 @@ void UpdatePanel::scan_updates() {
             item.file_size = ss.str();
 
             bool is_duplicate = false;
-            for (const auto &f : found_packages) {
+            for (const auto &f : packages) {
               if (f.file_path == item.file_path) {
                 is_duplicate = true;
                 break;
               }
             }
             if (!is_duplicate) {
-              found_packages.push_back(item);
+              packages.push_back(item);
             }
           }
         }
@@ -672,12 +675,18 @@ void UpdatePanel::scan_updates() {
       spdlog::warn("Error scanning path {}: {}", dir, e.what());
     }
   }
+}
 
-  // 3. Scan local dev update servers (if configured)
-  scan_dev_servers(found_packages, current_ver);
+void UpdatePanel::scan_updates(bool include_network) {
+  found_packages.clear();
+  std::string current_ver = get_current_os_version();
 
-  // 4. Scan configured remote web repository for online OTA updates
-  scan_remote_repo(found_packages, current_ver);
+  scan_local_storage(found_packages, current_ver, false);
+
+  if (include_network) {
+    scan_dev_servers(found_packages, current_ver);
+    scan_remote_repo(found_packages, current_ver);
+  }
 
   spdlog::info("SWUpdate scanner found {} package(s)", found_packages.size());
 }
@@ -867,7 +876,7 @@ void UpdatePanel::show_usb_detect_popup(const UpdatePackageItem &pkg) {
 
 void UpdatePanel::check_usb_auto_detect() {
   if (state != UpdateState::IDLE) return;
-  if (KUtils::is_printing()) return;
+  if (KUtils::is_printing() || KUtils::is_paused()) return;
 
   if (usb_detect_mbox != nullptr) {
     if (!fs::exists(pending_usb_package.file_path)) {
@@ -876,10 +885,17 @@ void UpdatePanel::check_usb_auto_detect() {
     return;
   }
 
-  scan_updates();
+  std::vector<UpdatePackageItem> usb_packages;
+  std::string current_ver = get_current_os_version();
+  scan_local_storage(usb_packages, current_ver, true /* usb_only */);
+
+  if (usb_packages.empty()) {
+    prompted_packages.clear();
+    return;
+  }
 
   std::set<std::string> current_paths;
-  for (const auto &p : found_packages) {
+  for (const auto &p : usb_packages) {
     current_paths.insert(p.file_path);
   }
 
@@ -891,13 +907,11 @@ void UpdatePanel::check_usb_auto_detect() {
     }
   }
 
-  for (const auto &pkg : found_packages) {
-    if (pkg.location_tag.find("USB") != std::string::npos) {
-      if (prompted_packages.find(pkg.file_path) == prompted_packages.end()) {
-        prompted_packages.insert(pkg.file_path);
-        show_usb_detect_popup(pkg);
-        break;
-      }
+  for (const auto &pkg : usb_packages) {
+    if (prompted_packages.find(pkg.file_path) == prompted_packages.end()) {
+      prompted_packages.insert(pkg.file_path);
+      show_usb_detect_popup(pkg);
+      break;
     }
   }
 }
