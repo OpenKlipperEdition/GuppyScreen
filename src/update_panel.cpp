@@ -170,28 +170,73 @@ static std::string get_current_os_version() {
   return "1.0.0";
 }
 
-static std::string parse_swu_version(const std::string &swu_path, const std::string &filename) {
+static void parse_swu_metadata(const std::string &swu_path, const std::string &filename, std::string &version_out, std::string &changelog_out) {
+  version_out = "";
+  changelog_out = "";
+
   std::ifstream f(swu_path, std::ios::binary);
   if (f.is_open()) {
-    std::vector<char> buf(8192, 0);
+    std::vector<char> buf(32768, 0);
     f.read(buf.data(), buf.size() - 1);
-    std::string content(buf.data());
+    std::string content(buf.data(), f.gcount());
+
+    // 1. Extract version from sw-description
     auto pos = content.find("version = \"");
     if (pos != std::string::npos) {
       pos += 11;
       auto endpos = content.find('"', pos);
       if (endpos != std::string::npos) {
-        return content.substr(pos, endpos - pos);
+        version_out = content.substr(pos, endpos - pos);
+      }
+    }
+
+    // 2. Extract changelog from sw-description
+    auto cl_pos = content.find("changelog = \"");
+    if (cl_pos != std::string::npos) {
+      cl_pos += 13;
+      size_t end_cl = cl_pos;
+      while (end_cl < content.size()) {
+        if (content[end_cl] == '"' && content[end_cl - 1] != '\\') {
+          break;
+        }
+        end_cl++;
+      }
+      if (end_cl < content.size()) {
+        std::string raw_cl = content.substr(cl_pos, end_cl - cl_pos);
+        std::string unescaped;
+        for (size_t i = 0; i < raw_cl.size(); ++i) {
+          if (raw_cl[i] == '\\' && i + 1 < raw_cl.size()) {
+            if (raw_cl[i + 1] == 'n') {
+              unescaped += '\n';
+              i++;
+            } else if (raw_cl[i + 1] == '"' || raw_cl[i + 1] == '\\') {
+              unescaped += raw_cl[i + 1];
+              i++;
+            } else {
+              unescaped += raw_cl[i];
+            }
+          } else {
+            unescaped += raw_cl[i];
+          }
+        }
+        changelog_out = unescaped;
       }
     }
   }
-  if (filename.rfind("openke-update-", 0) == 0) {
+
+  // Fallback to filename version if sw-description version is absent
+  if (version_out.empty() && filename.rfind("openke-update-", 0) == 0) {
     std::string v = filename.substr(14);
     if (v.size() > 4 && v.substr(v.size() - 4) == ".swu") {
-      return v.substr(0, v.size() - 4);
+      version_out = v.substr(0, v.size() - 4);
     }
   }
-  return "";
+}
+
+static std::string parse_swu_version(const std::string &swu_path, const std::string &filename) {
+  std::string v, cl;
+  parse_swu_metadata(swu_path, filename, v, cl);
+  return v;
 }
 
 static bool is_valid_semver(const std::string &v) {
@@ -292,6 +337,10 @@ static void scan_remote_repo(std::vector<UpdatePackageItem> &packages, const std
         item.version = rel.value("version", "");
         item.expected_sha256 = rel.value("sha256", "");
         item.release_notes = rel.value("release_notes", "");
+        item.changelog = rel.value("changelog", "");
+        if (item.changelog.empty()) {
+          item.changelog = item.release_notes;
+        }
         item.location_tag = "Web Repo (OTA)";
         item.is_remote = true;
 
@@ -486,6 +535,10 @@ static void scan_dev_servers(std::vector<UpdatePackageItem> &packages, const std
               item.version = rel.value("version", "dev");
               item.expected_sha256 = rel.value("sha256", "");
               item.release_notes = rel.value("release_notes", "");
+              item.changelog = rel.value("changelog", "");
+              if (item.changelog.empty()) {
+                item.changelog = item.release_notes;
+              }
               item.location_tag = "Dev Server (LAN)";
               item.is_remote = true;
               item.is_nightly = true;
@@ -623,7 +676,8 @@ static void scan_local_storage(std::vector<UpdatePackageItem> &packages, const s
             item.file_path = entry.path().string();
             item.file_name = entry.path().filename().string();
             item.location_tag = tag;
-            item.version = parse_swu_version(item.file_path, item.file_name);
+            parse_swu_metadata(item.file_path, item.file_name, item.version, item.changelog);
+            item.release_notes = item.changelog;
             item.is_remote = false;
 
             bool is_nightly_build = is_git_commit_hash(item.version) || (item.file_name.find("nightly") != std::string::npos);
@@ -952,7 +1006,17 @@ void UpdatePanel::show_confirmation_modal(const UpdatePackageItem &pkg) {
   lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
   lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 0);
 
-  lv_obj_t *desc = lv_label_create(modal_cont);
+  lv_obj_t *content_cont = lv_obj_create(modal_cont);
+  lv_obj_set_size(content_cont, LV_PCT(100), LV_PCT(68));
+  lv_obj_align(content_cont, LV_ALIGN_TOP_MID, 0, 26);
+  lv_obj_set_flex_flow(content_cont, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_all(content_cont, 4, 0);
+  lv_obj_set_style_pad_gap(content_cont, 6, 0);
+  lv_obj_add_flag(content_cont, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_bg_opa(content_cont, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(content_cont, 0, 0);
+
+  lv_obj_t *desc = lv_label_create(content_cont);
   std::string current_ver = get_current_os_version();
   std::string pkg_ver_str;
   if (pkg.is_nightly) {
@@ -962,19 +1026,37 @@ void UpdatePanel::show_confirmation_modal(const UpdatePackageItem &pkg) {
   } else {
     pkg_ver_str = "Unspecified";
   }
-  std::string info_text = "Package: " + pkg.file_name + " (" + pkg.file_size + ")\n"
+  std::string info_text = "• Package: " + pkg.file_name + " (" + pkg.file_size + ")\n"
                           "• Version: " + pkg_ver_str + "\n"
                           "• Installed: OpenKE v" + current_ver + " (" + active_slot + ")\n"
                           "• Target Slot: " + target_slot + "\n"
-                          "• Source: " + pkg.location_tag + "\n"
-                          "• Safety: Automatic backup of user config prior to write\n"
-                          "• Reboot required upon completion.";
+                          "• Source: " + pkg.location_tag;
   if (printing) {
     info_text += "\n\n[LOCKED] Printer is currently active! Flashing is blocked.";
   }
   lv_label_set_text(desc, info_text.c_str());
-  lv_obj_set_style_text_font(desc, &lv_font_montserrat_14, 0);
-  lv_obj_align(desc, LV_ALIGN_TOP_LEFT, 0, 30);
+  lv_obj_set_style_text_font(desc, &lv_font_montserrat_12, 0);
+
+  if (!pkg.changelog.empty()) {
+    lv_obj_t *cl_box = lv_obj_create(content_cont);
+    lv_obj_set_size(cl_box, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_color(cl_box, lv_palette_darken(LV_PALETTE_GREY, 3), 0);
+    lv_obj_set_style_radius(cl_box, 6, 0);
+    lv_obj_set_style_pad_all(cl_box, 6, 0);
+    lv_obj_set_flex_flow(cl_box, LV_FLEX_FLOW_COLUMN);
+    lv_obj_clear_flag(cl_box, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *cl_hdr = lv_label_create(cl_box);
+    lv_label_set_text(cl_hdr, "What's New in this Version:");
+    lv_obj_set_style_text_font(cl_hdr, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(cl_hdr, lv_palette_main(LV_PALETTE_LIGHT_BLUE), 0);
+
+    lv_obj_t *cl_text = lv_label_create(cl_box);
+    lv_label_set_text(cl_text, pkg.changelog.c_str());
+    lv_obj_set_style_text_font(cl_text, &lv_font_montserrat_12, 0);
+    lv_obj_set_width(cl_text, LV_PCT(100));
+    lv_label_set_long_mode(cl_text, LV_LABEL_LONG_WRAP);
+  }
 
   // Cancel button
   lv_obj_t *cancel_btn = lv_btn_create(modal_cont);

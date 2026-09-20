@@ -22,6 +22,7 @@ struct UpdatePackageItem {
   std::string status_badge;
   std::string expected_sha256;
   std::string release_notes;
+  std::string changelog;
   bool is_remote{false};
   bool is_nightly{false};
   int version_diff{0}; // >0 newer, 0 same, <0 older
