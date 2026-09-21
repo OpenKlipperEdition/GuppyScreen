@@ -1066,7 +1066,7 @@ void UpdatePanel::check_first_boot_whats_new() {
   unlink(pending_file.c_str());
 
   if (changelog_text.empty()) {
-    return;
+    changelog_text = "• Welcome to OpenKE!\n• System update installed successfully.";
   }
 
   std::string current_ver = get_current_os_version();
