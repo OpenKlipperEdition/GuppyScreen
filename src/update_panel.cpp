@@ -87,6 +87,7 @@ UpdatePanel::~UpdatePanel() {
     lv_timer_del(update_timer);
     update_timer = nullptr;
   }
+  close_whats_new_popup();
   close_usb_detect_popup();
   close_modal();
   if (worker_thread.joinable()) {
@@ -99,6 +100,7 @@ UpdatePanel::~UpdatePanel() {
 }
 
 void UpdatePanel::foreground() {
+  close_whats_new_popup();
   close_usb_detect_popup();
   scan_updates(true);
   build_package_list();
@@ -970,6 +972,136 @@ void UpdatePanel::check_usb_auto_detect() {
   }
 }
 
+void UpdatePanel::close_whats_new_popup() {
+  if (whats_new_mbox != nullptr) {
+    lv_obj_t *m = whats_new_mbox;
+    whats_new_mbox = nullptr;
+    lv_obj_del(m);
+  }
+}
+
+void UpdatePanel::show_first_boot_whats_new_popup(const std::string &version, const std::string &changelog_text) {
+  close_whats_new_popup();
+
+  whats_new_mbox = lv_obj_create(lv_scr_act());
+  lv_obj_add_flag(whats_new_mbox, LV_OBJ_FLAG_FLOATING);
+  lv_obj_set_size(whats_new_mbox, LV_PCT(90), LV_PCT(88));
+  lv_obj_center(whats_new_mbox);
+  lv_obj_move_foreground(whats_new_mbox);
+  lv_obj_set_style_bg_color(whats_new_mbox, lv_palette_darken(LV_PALETTE_GREY, 4), 0);
+  lv_obj_set_style_bg_opa(whats_new_mbox, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_color(whats_new_mbox, lv_palette_main(LV_PALETTE_GREEN), 0);
+  lv_obj_set_style_border_width(whats_new_mbox, 2, 0);
+  lv_obj_set_style_radius(whats_new_mbox, 12, 0);
+  lv_obj_set_style_pad_all(whats_new_mbox, 14, 0);
+  lv_obj_clear_flag(whats_new_mbox, LV_OBJ_FLAG_SCROLLABLE);
+
+  lv_obj_t *title = lv_label_create(whats_new_mbox);
+  std::string title_str = "Welcome to OpenKE v" + version;
+  lv_label_set_text(title, title_str.c_str());
+  lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
+  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 0);
+
+  lv_obj_t *sub_label = lv_label_create(whats_new_mbox);
+  lv_label_set_text(sub_label, "Firmware update applied successfully! What's new:");
+  lv_obj_set_style_text_font(sub_label, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(sub_label, lv_palette_lighten(LV_PALETTE_GREY, 1), 0);
+  lv_obj_align(sub_label, LV_ALIGN_TOP_LEFT, 0, 24);
+
+  // Scrollable changelog box
+  lv_obj_t *cl_box = lv_obj_create(whats_new_mbox);
+  lv_obj_set_size(cl_box, LV_PCT(100), LV_PCT(58));
+  lv_obj_align(cl_box, LV_ALIGN_TOP_MID, 0, 44);
+  lv_obj_set_style_bg_color(cl_box, lv_palette_darken(LV_PALETTE_GREY, 3), 0);
+  lv_obj_set_style_radius(cl_box, 6, 0);
+  lv_obj_set_style_pad_all(cl_box, 8, 0);
+  lv_obj_add_flag(cl_box, LV_OBJ_FLAG_SCROLLABLE);
+
+  lv_obj_t *cl_text = lv_label_create(cl_box);
+  lv_label_set_text(cl_text, changelog_text.c_str());
+  lv_obj_set_style_text_font(cl_text, &lv_font_montserrat_12, 0);
+  lv_obj_set_width(cl_text, LV_PCT(100));
+  lv_label_set_long_mode(cl_text, LV_LABEL_LONG_WRAP);
+
+  // Dismiss button
+  lv_obj_t *btn = lv_btn_create(whats_new_mbox);
+  lv_obj_set_size(btn, 160, 40);
+  lv_obj_align(btn, LV_ALIGN_BOTTOM_MID, 0, 0);
+  lv_obj_set_style_bg_color(btn, lv_palette_main(LV_PALETTE_GREEN), 0);
+  lv_obj_set_style_radius(btn, 6, 0);
+
+  lv_obj_t *btn_lbl = lv_label_create(btn);
+  lv_label_set_text(btn_lbl, "Get Started");
+  lv_obj_set_style_text_font(btn_lbl, &lv_font_montserrat_14, 0);
+  lv_obj_center(btn_lbl);
+
+  lv_obj_add_event_cb(btn, [](lv_event_t *e) {
+    auto *self = static_cast<UpdatePanel*>(e->user_data);
+    self->close_whats_new_popup();
+  }, LV_EVENT_CLICKED, this);
+}
+
+void UpdatePanel::check_first_boot_whats_new() {
+  if (first_boot_checked) return;
+  if (KUtils::is_printing() || KUtils::is_paused()) return;
+
+  first_boot_checked = true;
+
+  std::string current_ver = get_current_os_version();
+  if (current_ver.empty()) return;
+
+  std::string marker_path = "/usr/data/nebulaos/.last_seen_openke_version";
+  std::string last_seen_ver = "";
+
+  std::ifstream mf(marker_path);
+  if (mf.is_open()) {
+    std::getline(mf, last_seen_ver);
+    while (!last_seen_ver.empty() && (last_seen_ver.back() == '\r' || last_seen_ver.back() == '\n' || last_seen_ver.back() == ' ')) {
+      last_seen_ver.pop_back();
+    }
+  }
+
+  // If already seen this version, do nothing
+  if (last_seen_ver == current_ver) {
+    return;
+  }
+
+  // Load changelog text
+  std::string changelog_text;
+  std::vector<std::string> cl_sources = {
+    "/etc/openke-changelog",
+    "/usr/data/nebulaos/changelog.txt",
+    "/opt/printer_data/config/changelog.txt"
+  };
+
+  for (const auto &p : cl_sources) {
+    std::ifstream cf(p);
+    if (cf.is_open()) {
+      std::stringstream buffer;
+      buffer << cf.rdbuf();
+      changelog_text = buffer.str();
+      if (!changelog_text.empty()) break;
+    }
+  }
+
+  if (changelog_text.empty()) {
+    changelog_text = "• Native SWUpdate dual-slot A/B streaming upgrades\n"
+                     "• NebulaOS Power-Loss Recovery (PLR) dual-generation state machine\n"
+                     "• PREEMPT_RT memory reclaim resilience & hung task watchdog\n"
+                     "• GuppyScreen firmware update panel with USB auto-discovery";
+  }
+
+  // Write marker file to avoid reprompting
+  mkdir("/usr/data/nebulaos", 0755);
+  std::ofstream out_mf(marker_path);
+  if (out_mf.is_open()) {
+    out_mf << current_ver << std::endl;
+  }
+
+  // Show the welcome popup
+  show_first_boot_whats_new_popup(current_ver, changelog_text);
+}
+
 void UpdatePanel::close_modal() {
   if (modal_cont != nullptr) {
     lv_obj_del(modal_cont);
@@ -1342,6 +1474,9 @@ void UpdatePanel::execute_update_thread(UpdatePackageItem pkg) {
 }
 
 void UpdatePanel::timer_tick() {
+  if (!first_boot_checked) {
+    check_first_boot_whats_new();
+  }
   if (state == UpdateState::IDLE) {
     scan_tick_counter = (scan_tick_counter + 1) % 15; // Every 3 seconds (15 * 200ms)
     if (scan_tick_counter == 0) {

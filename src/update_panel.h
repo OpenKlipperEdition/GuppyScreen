@@ -64,6 +64,9 @@ class UpdatePanel {
   void check_usb_auto_detect();
   void show_usb_detect_popup(const UpdatePackageItem &pkg);
   void close_usb_detect_popup();
+  void check_first_boot_whats_new();
+  void show_first_boot_whats_new_popup(const std::string &version, const std::string &changelog_text);
+  void close_whats_new_popup();
   void build_package_list();
   void show_confirmation_modal(const UpdatePackageItem &pkg);
   void show_progress_view(const UpdatePackageItem &pkg);
@@ -77,6 +80,8 @@ class UpdatePanel {
   lv_obj_t *list_cont{nullptr};
   lv_obj_t *modal_cont{nullptr};
   lv_obj_t *usb_detect_mbox{nullptr};
+  lv_obj_t *whats_new_mbox{nullptr};
+  bool first_boot_checked{false};
   lv_obj_t *progress_bar{nullptr};
   lv_obj_t *progress_label{nullptr};
   lv_obj_t *status_label{nullptr};
