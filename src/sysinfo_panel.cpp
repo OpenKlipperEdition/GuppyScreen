@@ -390,12 +390,12 @@ SysInfoPanel::SysInfoPanel()
   lv_obj_add_event_cb(touch_beep_toggle, &SysInfoPanel::_handle_callback,
     LV_EVENT_VALUE_CHANGED, this);
 
-  // Reset Options lives alone in the top-right corner, away from other controls.
+  // Reset Options lives in the top-right corner, Power Off in the middle-right, and Back in the bottom-right.
   lv_obj_add_flag(reset_options_btn.get_container(), LV_OBJ_FLAG_FLOATING);
   lv_obj_align(reset_options_btn.get_container(), LV_ALIGN_TOP_RIGHT, 0, 0);
 
   lv_obj_add_flag(power_off_btn.get_container(), LV_OBJ_FLAG_FLOATING);
-  lv_obj_align(power_off_btn.get_container(), LV_ALIGN_BOTTOM_RIGHT, -68, 0);
+  lv_obj_align(power_off_btn.get_container(), LV_ALIGN_RIGHT_MID, 0, 0);
 
   lv_obj_add_flag(back_btn.get_container(), LV_OBJ_FLAG_FLOATING);
   lv_obj_align(back_btn.get_container(), LV_ALIGN_BOTTOM_RIGHT, 0, 0);
@@ -412,12 +412,13 @@ SysInfoPanel::SysInfoPanel()
 
   // The Theme/Def-Temp rows now share the right column with the network text.
   // A long network list (e.g. many interfaces) can push these rows down into
-  // the Back button's band, so reserve clearance for the WIDER of the two
-  // floating corner buttons (Reset Options top-right, Back bottom-right) plus a
+  // the buttons' band, so reserve clearance for the WIDER of the
+  // floating side buttons (Reset Options top-right, Power Off right-mid, Back bottom-right) plus a
   // comfortable margin, otherwise a right-aligned dropdown tucks under a button.
-  lv_coord_t corner_btn_w = std::max(
+  lv_coord_t corner_btn_w = std::max({
       lv_obj_get_width(reset_options_btn.get_container()),
-      lv_obj_get_width(back_btn.get_container()));
+      lv_obj_get_width(power_off_btn.get_container()),
+      lv_obj_get_width(back_btn.get_container())});
   lv_coord_t right_row_w = lv_obj_get_width(right_cont) - corner_btn_w - 12;
   lv_obj_set_width(theme_cont, right_row_w);
   lv_obj_set_width(def_temp_cont, right_row_w);
