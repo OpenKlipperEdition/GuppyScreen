@@ -1,5 +1,6 @@
 #include "sysinfo_panel.h"
 #include "utils.h"
+#include "state.h"
 #include "config.h"
 #include "theme.h"
 #include "touch_beep.h"
@@ -457,22 +458,7 @@ void SysInfoPanel::handle_callback(lv_event_t *e)
     } else if (btn == reset_options_btn.get_container()) {
       show_reset_options();
     } else if (btn == power_off_btn.get_container()) {
-      if (KUtils::is_printing()) {
-        KUtils::notify_locked();
-        return;
-      }
-      show_reset_confirm(
-        "Power Off Printer?",
-        "Safely syncs filesystems and powers off the CPU.\n\nAre you sure you want to turn off the printer?",
-        []() {
-          spdlog::info("Power off requested by user from System Info panel");
-          sync();
-          system("sync; poweroff -f || /sbin/poweroff -f || shutdown -h now || /sbin/shutdown -h now || poweroff");
-#ifdef __linux__
-          reboot(RB_POWER_OFF);
-#endif
-        }
-      );
+      request_power_off();
     }
   } else if (lv_event_get_code(e) == LV_EVENT_VALUE_CHANGED) {
     lv_obj_t *obj = lv_event_get_target(e);
@@ -707,18 +693,7 @@ void SysInfoPanel::show_reset_options() {
 
   lv_obj_add_event_cb(btn_pwr, [](lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    ((SysInfoPanel *)e->user_data)->show_reset_confirm(
-      "Power Off Printer?",
-      "Safely syncs filesystems and powers off the CPU.\n\nAre you sure you want to turn off the printer?",
-      []() {
-        spdlog::info("Power off printer requested from Reset Options");
-        sync();
-        system("sync; poweroff -f || /sbin/poweroff -f || shutdown -h now || /sbin/shutdown -h now || poweroff");
-#ifdef __linux__
-        reboot(RB_POWER_OFF);
-#endif
-      }
-    );
+    ((SysInfoPanel *)e->user_data)->request_power_off();
   }, LV_EVENT_CLICKED, this);
 }
 
@@ -731,6 +706,7 @@ void SysInfoPanel::show_reset_confirm(const char *title, const char *detail,
   KUtils::style_dialog_msgbox(mbox);
 
   lv_obj_t *msg = ((lv_msgbox_t *)mbox)->text;
+  lv_label_set_long_mode(msg, LV_LABEL_LONG_WRAP);
   lv_obj_set_style_text_align(msg, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_set_width(msg, LV_PCT(100));
   lv_obj_center(msg);
@@ -743,7 +719,7 @@ void SysInfoPanel::show_reset_confirm(const char *title, const char *detail,
 
   auto hscale = (double)lv_disp_get_physical_ver_res(NULL) / 480.0;
   lv_obj_set_size(btnm, LV_PCT(90), 50 * hscale);
-  lv_obj_set_size(mbox, LV_PCT(75), LV_PCT(55));
+  lv_obj_set_size(mbox, LV_PCT(80), LV_PCT(65));
 
   lv_obj_add_event_cb(btnm, [](lv_event_t *e) {
     lv_obj_draw_part_dsc_t *dsc = lv_event_get_draw_part_dsc(e);
@@ -766,4 +742,109 @@ void SysInfoPanel::show_reset_confirm(const char *title, const char *detail,
   }, LV_EVENT_VALUE_CHANGED, pcb);
 
   lv_obj_center(mbox);
+}
+
+void SysInfoPanel::show_safety_alert(const char *title, const std::string &detail) {
+  static const char *btns[] = {"OK", ""};
+
+  lv_obj_t *mbox = lv_msgbox_create(NULL, NULL,
+    fmt::format("{}\n\n{}", title, detail).c_str(), btns, false);
+  KUtils::style_dialog_msgbox(mbox);
+
+  lv_obj_t *msg = ((lv_msgbox_t *)mbox)->text;
+  lv_label_set_long_mode(msg, LV_LABEL_LONG_WRAP);
+  lv_obj_set_style_text_align(msg, LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_set_width(msg, LV_PCT(100));
+  lv_obj_center(msg);
+
+  lv_obj_t *btnm = lv_msgbox_get_btns(mbox);
+  lv_btnmatrix_set_btn_ctrl(btnm, 0, LV_BTNMATRIX_CTRL_CHECKED);
+  lv_obj_add_flag(btnm, LV_OBJ_FLAG_FLOATING);
+  lv_obj_align(btnm, LV_ALIGN_BOTTOM_MID, 0, 0);
+
+  auto hscale = (double)lv_disp_get_physical_ver_res(NULL) / 480.0;
+  lv_obj_set_size(btnm, LV_PCT(50), 50 * hscale);
+  lv_obj_set_size(mbox, LV_PCT(80), LV_PCT(65));
+
+  lv_obj_add_event_cb(mbox, [](lv_event_t *e) {
+    lv_obj_t *obj = lv_obj_get_parent(lv_event_get_target(e));
+    lv_msgbox_close(obj);
+  }, LV_EVENT_VALUE_CHANGED, NULL);
+
+  lv_obj_center(mbox);
+}
+
+void SysInfoPanel::execute_power_off() {
+  spdlog::info("Executing system power off");
+  sync();
+  system("sync; poweroff -f || /sbin/poweroff -f || shutdown -h now || /sbin/shutdown -h now || poweroff");
+#ifdef __linux__
+  reboot(RB_POWER_OFF);
+#endif
+}
+
+void SysInfoPanel::request_power_off() {
+  // 1. Print state protection: Active print or paused job
+  if (KUtils::is_printing()) {
+    show_safety_alert(
+      "Cannot Power Off",
+      "A print job is currently active or paused.\n\nPlease cancel or wait for the print to complete before turning off the printer."
+    );
+    return;
+  }
+
+  // 2. Query thermal states
+  auto s = State::get_instance();
+  auto etarget_j = s->get_data("/printer_state/extruder/target"_json_pointer);
+  auto etemp_j   = s->get_data("/printer_state/extruder/temperature"_json_pointer);
+  auto btarget_j = s->get_data("/printer_state/heater_bed/target"_json_pointer);
+  auto btemp_j   = s->get_data("/printer_state/heater_bed/temperature"_json_pointer);
+
+  double etarget = etarget_j.is_number() ? etarget_j.template get<double>() : 0.0;
+  double etemp   = etemp_j.is_number()   ? etemp_j.template get<double>()   : 0.0;
+  double btarget = btarget_j.is_number() ? btarget_j.template get<double>() : 0.0;
+  double btemp   = btemp_j.is_number()   ? btemp_j.template get<double>()   : 0.0;
+
+  // Active heater targets protection
+  if (etarget > 0.0 || btarget > 0.0) {
+    std::string heater_info;
+    if (etarget > 0.0 && btarget > 0.0) {
+      heater_info = fmt::format("Extruder: {:.0f}/{:.0f}°C\nBed: {:.0f}/{:.0f}°C", etemp, etarget, btemp, btarget);
+    } else if (etarget > 0.0) {
+      heater_info = fmt::format("Extruder heating: {:.0f}/{:.0f}°C", etemp, etarget);
+    } else {
+      heater_info = fmt::format("Bed heating: {:.0f}/{:.0f}°C", btemp, btarget);
+    }
+    show_safety_alert(
+      "Heaters Are Active",
+      fmt::format("{}\n\nPlease turn off all heaters and allow them to cool down before powering off.", heater_info)
+    );
+    return;
+  }
+
+  // 3. Hotend residual temperature protection (heat creep / clog risk)
+  if (etemp >= 50.0) {
+    show_reset_confirm(
+      "Hotend Still Hot!",
+      fmt::format(
+        "Extruder temperature is {:.0f}°C (cooldown target: <50°C).\n\n"
+        "Powering off now stops the heatsink fan and may cause heat creep or nozzle clogs.\n\n"
+        "Are you sure you want to power off anyway?",
+        etemp
+      ).c_str(),
+      [this]() {
+        execute_power_off();
+      }
+    );
+    return;
+  }
+
+  // 4. Safe idle state confirmation
+  show_reset_confirm(
+    "Power Off Printer?",
+    "Safely syncs filesystems and powers off the CPU.\n\nAre you sure you want to turn off the printer?",
+    [this]() {
+      execute_power_off();
+    }
+  );
 }

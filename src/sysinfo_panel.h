@@ -19,6 +19,9 @@ class SysInfoPanel {
   void show_reset_options();
   void show_reset_confirm(const char *title, const char *detail,
                           const std::function<void()> &cb);
+  void request_power_off();
+  void execute_power_off();
+  void show_safety_alert(const char *title, const std::string &detail);
 
   static void _handle_callback(lv_event_t *event) {
     SysInfoPanel *panel = (SysInfoPanel*)event->user_data;
