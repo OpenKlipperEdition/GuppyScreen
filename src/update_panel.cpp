@@ -1043,62 +1043,33 @@ void UpdatePanel::show_first_boot_whats_new_popup(const std::string &version, co
 
 void UpdatePanel::check_first_boot_whats_new() {
   if (first_boot_checked) return;
-  if (KUtils::is_printing() || KUtils::is_paused()) return;
-
   first_boot_checked = true;
 
-  std::string current_ver = get_current_os_version();
-  if (current_ver.empty()) return;
-
-  std::string marker_path = "/usr/data/nebulaos/.last_seen_openke_version";
-  std::string last_seen_ver = "";
-
-  std::ifstream mf(marker_path);
-  if (mf.is_open()) {
-    std::getline(mf, last_seen_ver);
-    while (!last_seen_ver.empty() && (last_seen_ver.back() == '\r' || last_seen_ver.back() == '\n' || last_seen_ver.back() == ' ')) {
-      last_seen_ver.pop_back();
+  std::string pending_file = "/usr/data/nebulaos/.pending_whats_new";
+  if (!fs::exists(pending_file)) {
+    pending_file = "/usr/data/nebulaos/pending_changelog.txt";
+    if (!fs::exists(pending_file)) {
+      return;
     }
   }
 
-  // If already seen this version, do nothing
-  if (last_seen_ver == current_ver) {
-    return;
-  }
-
-  // Load changelog text
   std::string changelog_text;
-  std::vector<std::string> cl_sources = {
-    "/etc/openke-changelog",
-    "/usr/data/nebulaos/changelog.txt",
-    "/opt/printer_data/config/changelog.txt"
-  };
-
-  for (const auto &p : cl_sources) {
-    std::ifstream cf(p);
-    if (cf.is_open()) {
-      std::stringstream buffer;
-      buffer << cf.rdbuf();
-      changelog_text = buffer.str();
-      if (!changelog_text.empty()) break;
-    }
+  std::ifstream f(pending_file);
+  if (f.is_open()) {
+    std::stringstream buffer;
+    buffer << f.rdbuf();
+    changelog_text = buffer.str();
+    f.close();
   }
+
+  // Delete the pending marker file so it is never shown again on subsequent boots
+  unlink(pending_file.c_str());
 
   if (changelog_text.empty()) {
-    changelog_text = "• Native SWUpdate dual-slot A/B streaming upgrades\n"
-                     "• NebulaOS Power-Loss Recovery (PLR) dual-generation state machine\n"
-                     "• PREEMPT_RT memory reclaim resilience & hung task watchdog\n"
-                     "• GuppyScreen firmware update panel with USB auto-discovery";
+    changelog_text = "• Welcome to OpenKE!\n• System update installed successfully.";
   }
 
-  // Write marker file to avoid reprompting
-  mkdir("/usr/data/nebulaos", 0755);
-  std::ofstream out_mf(marker_path);
-  if (out_mf.is_open()) {
-    out_mf << current_ver << std::endl;
-  }
-
-  // Show the welcome popup
+  std::string current_ver = get_current_os_version();
   show_first_boot_whats_new_popup(current_ver, changelog_text);
 }
 
