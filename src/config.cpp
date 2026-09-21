@@ -159,7 +159,7 @@ void Config::init(std::string config_path, const std::string thumbdir) {
     // (NebulaOS-guppyscreen) is pinned and built directly by NebulaOS, so its
     // own compiled-in fallback should match what NebulaOS actually deploys.
     auto &guppy_init = data["/guppy_init_script"_json_pointer];
-    if (guppy_init.is_null()) {
+    if (guppy_init.is_null() || guppy_init == "service guppyscreen") {
       data["/guppy_init_script"_json_pointer] = "/etc/init.d/S58guppyscreen";
     }
 

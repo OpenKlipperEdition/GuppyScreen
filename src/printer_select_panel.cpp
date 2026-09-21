@@ -55,6 +55,9 @@ PrinterSelectContainer::PrinterSelectContainer(PrinterSelectPanel &ps,
 	  conf->save();
 		  
 	  auto init_script = conf->get<std::string>("/guppy_init_script");
+	  if (init_script == "service guppyscreen" || init_script.empty()) {
+	    init_script = "/etc/init.d/S58guppyscreen";
+	  }
 	  const fs::path script(init_script);
 	  if (fs::exists(script)) {
 	    // See setting_panel.cpp's guppy_restart_btn handler for why this is
@@ -63,6 +66,11 @@ PrinterSelectContainer::PrinterSelectContainer(PrinterSelectPanel &ps,
 	    int rc = sp::call(init_script + " restart");
 	    if (rc != 0) {
 	      spdlog::warn("Restart Guppy Screen (printer switch): '{} restart' exited with code {}", init_script, rc);
+	    }
+	  } else if (fs::exists("/etc/init.d/S58guppyscreen")) {
+	    int rc = sp::call("/etc/init.d/S58guppyscreen restart");
+	    if (rc != 0) {
+	      spdlog::warn("Restart Guppy Screen (printer switch) fallback: '/etc/init.d/S58guppyscreen restart' exited with code {}", rc);
 	    }
 	  } else {
 	    spdlog::warn("Failed to restart Guppy Screen on printer switch. Restart script not found: {}", init_script);

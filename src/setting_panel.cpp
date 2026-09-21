@@ -109,17 +109,23 @@ void SettingPanel::handle_callback(lv_event_t *event) {
       spdlog::trace("restart guppy pressed");
       Config *conf = Config::get_instance();
       auto init_script = conf->get<std::string>("/guppy_init_script");
+      if (init_script == "service guppyscreen" || init_script.empty()) {
+        init_script = "/etc/init.d/S58guppyscreen";
+      }
       const fs::path script(init_script);
       if (fs::exists(script)) {
         // Pass as one command string, not {init_script, "restart"} - that
         // vector<string> overload uses init_script verbatim as argv[0], so a
-        // value with an embedded space (e.g. the historical, broken
-        // "service guppyscreen") was never executable on either OpenKE or
-        // NebulaOS. The string overload below splits on whitespace into a
-        // proper argv, same as a shell would.
+        // value with an embedded space was never executable directly.
+        // The string overload splits on whitespace into a proper argv.
         int rc = sp::call(init_script + " restart");
         if (rc != 0) {
           spdlog::warn("Restart Guppy Screen: '{} restart' exited with code {}", init_script, rc);
+        }
+      } else if (fs::exists("/etc/init.d/S58guppyscreen")) {
+        int rc = sp::call("/etc/init.d/S58guppyscreen restart");
+        if (rc != 0) {
+          spdlog::warn("Restart Guppy Screen fallback: '/etc/init.d/S58guppyscreen restart' exited with code {}", rc);
         }
       } else {
         spdlog::warn("Failed to restart Guppy Screen. Restart script not found: {}", init_script);
