@@ -15,8 +15,14 @@
 
 namespace fs = std::experimental::filesystem;
 
+#include <unistd.h>
+#ifdef __linux__
+#include <sys/reboot.h>
+#endif
+
 LV_IMG_DECLARE(back);
 LV_IMG_DECLARE(cancel);
+LV_IMG_DECLARE(emergency);
 
 #ifdef OPENKE_VERSION
 #define OPENKE_VER_STR OPENKE_VERSION
@@ -117,6 +123,7 @@ SysInfoPanel::SysInfoPanel()
   , touch_beep_toggle(lv_switch_create(touch_beep_cont))
 
   , reset_options_btn(cont, &cancel, "Reset\nOptions", &SysInfoPanel::_handle_callback, this)
+  , power_off_btn(cont, &emergency, "Power\nOff", &SysInfoPanel::_handle_callback, this)
   , back_btn(cont, &back, "Back", &SysInfoPanel::_handle_callback, this)
 {
   lv_obj_move_background(cont);
@@ -387,6 +394,9 @@ SysInfoPanel::SysInfoPanel()
   lv_obj_add_flag(reset_options_btn.get_container(), LV_OBJ_FLAG_FLOATING);
   lv_obj_align(reset_options_btn.get_container(), LV_ALIGN_TOP_RIGHT, 0, 0);
 
+  lv_obj_add_flag(power_off_btn.get_container(), LV_OBJ_FLAG_FLOATING);
+  lv_obj_align(power_off_btn.get_container(), LV_ALIGN_BOTTOM_RIGHT, -68, 0);
+
   lv_obj_add_flag(back_btn.get_container(), LV_OBJ_FLAG_FLOATING);
   lv_obj_align(back_btn.get_container(), LV_ALIGN_BOTTOM_RIGHT, 0, 0);
 
@@ -458,6 +468,23 @@ void SysInfoPanel::handle_callback(lv_event_t *e)
       lv_obj_move_background(cont);
     } else if (btn == reset_options_btn.get_container()) {
       show_reset_options();
+    } else if (btn == power_off_btn.get_container()) {
+      if (KUtils::is_printing()) {
+        KUtils::notify_locked();
+        return;
+      }
+      show_reset_confirm(
+        "Power Off Printer?",
+        "Safely syncs filesystems and powers off the CPU.\n\nAre you sure you want to turn off the printer?",
+        []() {
+          spdlog::info("Power off requested by user from System Info panel");
+          sync();
+          system("sync; poweroff -f || /sbin/poweroff -f || shutdown -h now || /sbin/shutdown -h now || poweroff");
+#ifdef __linux__
+          reboot(RB_POWER_OFF);
+#endif
+        }
+      );
     }
   } else if (lv_event_get_code(e) == LV_EVENT_VALUE_CHANGED) {
     lv_obj_t *obj = lv_event_get_target(e);
@@ -629,6 +656,11 @@ void SysInfoPanel::show_reset_options() {
     "Clears saved calibration coefficients.\nGuppyScreen restarts and asks you to recalibrate."
   );
 
+  lv_obj_t *btn_pwr = make_opt_btn(
+    "Power Off Printer",
+    "Safely syncs filesystem and powers off CPU."
+  );
+
   lv_obj_t *close_btn = lv_btn_create(box);
   lv_obj_set_size(close_btn, LV_PCT(50), LV_SIZE_CONTENT);
   lv_obj_set_style_bg_color(close_btn, lv_palette_darken(LV_PALETTE_GREY, 1), 0);
@@ -681,6 +713,22 @@ void SysInfoPanel::show_reset_options() {
         conf->set<json>("/touch_calibration_coeff", json());
         conf->save();
         _exit(0);
+      }
+    );
+  }, LV_EVENT_CLICKED, this);
+
+  lv_obj_add_event_cb(btn_pwr, [](lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    ((SysInfoPanel *)e->user_data)->show_reset_confirm(
+      "Power Off Printer?",
+      "Safely syncs filesystems and powers off the CPU.\n\nAre you sure you want to turn off the printer?",
+      []() {
+        spdlog::info("Power off printer requested from Reset Options");
+        sync();
+        system("sync; poweroff -f || /sbin/poweroff -f || shutdown -h now || /sbin/shutdown -h now || poweroff");
+#ifdef __linux__
+        reboot(RB_POWER_OFF);
+#endif
       }
     );
   }, LV_EVENT_CLICKED, this);

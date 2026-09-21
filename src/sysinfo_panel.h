@@ -65,6 +65,7 @@ class SysInfoPanel {
   lv_obj_t *touch_beep_toggle;
 
   ButtonContainer reset_options_btn;
+  ButtonContainer power_off_btn;
   ButtonContainer back_btn;
 
   static std::vector<std::string> log_levels;
