@@ -1,4 +1,5 @@
 #include "command_item.h"
+#include "utils.h"
 
 LV_IMG_DECLARE(img_star);
 
@@ -48,10 +49,7 @@ void CommandItem::set_command(const std::string &c) {
 }
 
 void CommandItem::update_favorite_icon() {
-  lv_obj_set_style_img_recolor_opa(fav_img, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_img_recolor(fav_img,
-    favorite ? lv_palette_main(LV_PALETTE_AMBER)
-	     : lv_palette_lighten(LV_PALETTE_GREY, 2), LV_PART_MAIN);
+  KUtils::style_favorite_icon(fav_img, favorite);
 }
 
 void CommandItem::set_favorite(bool fav) {

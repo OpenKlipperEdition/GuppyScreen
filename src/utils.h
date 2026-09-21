@@ -12,8 +12,23 @@
 using json = nlohmann::json;
 
 class KWebSocketClient;
+class State;
 
 namespace KUtils {
+  // Dual-slot A/B system boot detection
+  bool is_slot2_active();
+  std::string get_active_slot_name();
+  std::string get_active_slot_num();
+
+  // GuppyScreen service restart with fallback
+  bool restart_guppyscreen();
+
+  // Pre-cancel heating/startup delay explanation
+  std::string get_heating_cancel_delay(State *s = nullptr);
+
+  // Favorite icon styling (amber if favorite, grey if not)
+  void style_favorite_icon(lv_obj_t *fav_img, bool favorite);
+
   bool is_homed();
   // Actionable "Homing required" modal (Home / Cancel); the Home button sends
   // G28. Shared by the notification manager (on a Klipper "Must home axis first"

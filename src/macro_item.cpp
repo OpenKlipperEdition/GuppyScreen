@@ -117,12 +117,7 @@ MacroItem::~MacroItem() {
 }
 
 void MacroItem::update_favorite_icon() {
-  lv_obj_set_style_img_recolor_opa(fav_img, LV_OPA_COVER, LV_PART_MAIN);
-  if (favorite) {
-    lv_obj_set_style_img_recolor(fav_img, lv_palette_main(LV_PALETTE_AMBER), LV_PART_MAIN);
-  } else {
-    lv_obj_set_style_img_recolor(fav_img, lv_palette_lighten(LV_PALETTE_GREY, 2), LV_PART_MAIN);
-  }
+  KUtils::style_favorite_icon(fav_img, favorite);
 }
 
 void MacroItem::set_visible(bool v) {

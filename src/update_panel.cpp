@@ -128,19 +128,6 @@ void UpdatePanel::handle_callback(lv_event_t *event) {
   }
 }
 
-static bool is_slot2_active() {
-  std::ifstream cmdline("/proc/cmdline");
-  if (cmdline.is_open()) {
-    std::string line;
-    std::getline(cmdline, line);
-    if (line.find("root=/dev/mmcblk0p8") != std::string::npos ||
-        line.find("rootfs2") != std::string::npos) {
-      return true;
-    }
-  }
-  return false;
-}
-
 static std::string get_current_os_version() {
   std::ifstream vfile("/etc/openke-version");
   if (vfile.is_open()) {
@@ -751,7 +738,7 @@ void UpdatePanel::build_package_list() {
   lv_obj_clean(list_cont);
 
   std::string current_ver = get_current_os_version();
-  std::string slot_name = is_slot2_active() ? "Slot 2" : "Slot 1";
+  std::string slot_name = KUtils::get_active_slot_name();
   std::string title_str = "Firmware Update (v" + current_ver + " • " + slot_name + ")";
   lv_label_set_text(title_label, title_str.c_str());
 
@@ -1086,7 +1073,7 @@ void UpdatePanel::show_confirmation_modal(const UpdatePackageItem &pkg) {
   selected_package = pkg;
   state = UpdateState::CONFIRMING;
 
-  bool slot2_active = is_slot2_active();
+  bool slot2_active = KUtils::is_slot2_active();
   bool printing = KUtils::is_printing();
   std::string active_slot = slot2_active ? "Slot 2" : "Slot 1";
   std::string target_slot = slot2_active ? "Slot 1" : "Slot 2";
@@ -1379,7 +1366,7 @@ void UpdatePanel::execute_update_thread(UpdatePackageItem pkg) {
     }
   }
 
-  std::string target_slot = is_slot2_active() ? "slot1" : "slot2";
+  std::string target_slot = KUtils::is_slot2_active() ? "slot1" : "slot2";
   std::string selection_arg = "stable," + target_slot;
 
   {

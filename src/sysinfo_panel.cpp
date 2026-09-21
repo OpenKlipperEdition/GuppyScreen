@@ -432,19 +432,6 @@ SysInfoPanel::~SysInfoPanel() {
   }
 }
 
-static bool is_slot2_active() {
-  std::ifstream cmdline("/proc/cmdline");
-  if (cmdline.is_open()) {
-    std::string line;
-    std::getline(cmdline, line);
-    if (line.find("root=/dev/mmcblk0p8") != std::string::npos ||
-        line.find("rootfs2") != std::string::npos) {
-      return true;
-    }
-  }
-  return false;
-}
-
 void SysInfoPanel::foreground() {
   lv_obj_move_foreground(cont);
 
@@ -455,7 +442,7 @@ void SysInfoPanel::foreground() {
     auto ip = KUtils::interface_ip(iface);
     network_detail.push_back(fmt::format("\t{}: {}", iface, ip));
   }
-  std::string active_slot = is_slot2_active() ? "2" : "1";
+  std::string active_slot = KUtils::get_active_slot_num();
   lv_label_set_text(network_label, fmt::format("{}\n\nSystem\n\tActive Slot: {}\n\tOpenKE: v" OPENKE_VER_STR,
     fmt::join(network_detail, "\n"), active_slot).c_str());
 }

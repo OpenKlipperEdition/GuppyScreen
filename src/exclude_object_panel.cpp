@@ -338,33 +338,7 @@ void ExcludeObjectPanel::confirm_exclude(const std::string &name) {
 
   if (cancel_on_confirm) {
     // Check current heater state so the dialog explains any delay honestly.
-    auto etarget_j = s->get_data("/printer_state/extruder/target"_json_pointer);
-    auto etemp_j   = s->get_data("/printer_state/extruder/temperature"_json_pointer);
-    auto btarget_j = s->get_data("/printer_state/heater_bed/target"_json_pointer);
-    auto btemp_j   = s->get_data("/printer_state/heater_bed/temperature"_json_pointer);
-    double etarget = etarget_j.is_number() ? etarget_j.template get<double>() : 0.0;
-    double etemp   = etemp_j.is_number()   ? etemp_j.template get<double>()   : 0.0;
-    double btarget = btarget_j.is_number() ? btarget_j.template get<double>() : 0.0;
-    double btemp   = btemp_j.is_number()   ? btemp_j.template get<double>()   : 0.0;
-    auto pdur_j    = s->get_data("/printer_state/print_stats/print_duration"_json_pointer);
-    double pdur    = pdur_j.is_number()    ? pdur_j.template get<double>()    : 1.0;
-    bool e_heating  = etarget > 0 && etemp < etarget - 2.0;
-    bool b_heating  = btarget > 0 && btemp < btarget - 2.0;
-    bool in_startup = pdur < 0.1;
-
-    std::string delay;
-    if (e_heating && b_heating)
-      delay = fmt::format("\n\nExtruder {:.0f}/{:.0f}°C + Bed {:.0f}/{:.0f}°C\n"
-                          "Cancel is queued and will run when heating finishes.", etemp, etarget, btemp, btarget);
-    else if (e_heating)
-      delay = fmt::format("\n\nExtruder heating: {:.0f}/{:.0f}°C\n"
-                          "Cancel is queued and will run when heating finishes.", etemp, etarget);
-    else if (b_heating)
-      delay = fmt::format("\n\nBed heating: {:.0f}/{:.0f}°C\n"
-                          "Cancel is queued and will run when heating finishes.", btemp, btarget);
-    else if (in_startup)
-      delay = "\n\nStartup in progress — cancel is queued\n"
-              "and will run when startup finishes.";
+    std::string delay = KUtils::get_heating_cancel_delay(s);
 
     msg  = fmt::format("\"{}\" is the last object.\n"
                        "Excluding it will cancel the print.{}", shown, delay);

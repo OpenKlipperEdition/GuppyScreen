@@ -48,34 +48,11 @@ PrinterSelectContainer::PrinterSelectContainer(PrinterSelectPanel &ps,
 	lv_obj_t *obj = lv_obj_get_parent(lv_event_get_target(e));
 	uint32_t clicked_btn = lv_msgbox_get_active_btn(obj);
 	if(clicked_btn == 0) {
-	  
-	  
 	  Config *conf = Config::get_instance();
 	  conf->set<std::string>("/default_printer", ((PrinterSelectContainer*)e->user_data)->name);
 	  conf->save();
-		  
-	  auto init_script = conf->get<std::string>("/guppy_init_script");
-	  if (init_script == "service guppyscreen" || init_script.empty()) {
-	    init_script = "/etc/init.d/S58guppyscreen";
-	  }
-	  const fs::path script(init_script);
-	  if (fs::exists(script)) {
-	    // See setting_panel.cpp's guppy_restart_btn handler for why this is
-	    // one command string (splits on whitespace into a proper argv)
-	    // rather than {init_script, "restart"}.
-	    int rc = sp::call(init_script + " restart");
-	    if (rc != 0) {
-	      spdlog::warn("Restart Guppy Screen (printer switch): '{} restart' exited with code {}", init_script, rc);
-	    }
-	  } else if (fs::exists("/etc/init.d/S58guppyscreen")) {
-	    int rc = sp::call("/etc/init.d/S58guppyscreen restart");
-	    if (rc != 0) {
-	      spdlog::warn("Restart Guppy Screen (printer switch) fallback: '/etc/init.d/S58guppyscreen restart' exited with code {}", rc);
-	    }
-	  } else {
-	    spdlog::warn("Failed to restart Guppy Screen on printer switch. Restart script not found: {}", init_script);
-	  }
 
+	  KUtils::restart_guppyscreen();
 	}
 	
 	lv_msgbox_close(obj);

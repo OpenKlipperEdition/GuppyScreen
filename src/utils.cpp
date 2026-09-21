@@ -5,8 +5,11 @@
 #include "state.h"
 #include "websocket_client.h"
 #include "spdlog/spdlog.h"
+#include "subprocess.hpp"
 #include "platform.h"
 #include "lvgl/lvgl.h"
+
+namespace sp = subprocess;
 
 #include <cmath>
 #include <time.h>
@@ -751,5 +754,95 @@ namespace KUtils {
     }
 
     return macros;
+  }
+
+  bool is_slot2_active() {
+    std::ifstream cmdline("/proc/cmdline");
+    if (cmdline.is_open()) {
+      std::string line;
+      std::getline(cmdline, line);
+      if (line.find("root=/dev/mmcblk0p8") != std::string::npos ||
+          line.find("rootfs2") != std::string::npos) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  std::string get_active_slot_name() {
+    return is_slot2_active() ? "Slot 2" : "Slot 1";
+  }
+
+  std::string get_active_slot_num() {
+    return is_slot2_active() ? "2" : "1";
+  }
+
+  bool restart_guppyscreen() {
+    Config *conf = Config::get_instance();
+    auto init_script = conf->get<std::string>("/guppy_init_script");
+    if (init_script == "service guppyscreen" || init_script.empty()) {
+      init_script = "/etc/init.d/S58guppyscreen";
+    }
+    const fs::path script(init_script);
+    if (fs::exists(script)) {
+      int rc = sp::call(init_script + " restart");
+      if (rc != 0) {
+        spdlog::warn("Restart Guppy Screen: '{} restart' exited with code {}", init_script, rc);
+        return false;
+      }
+      return true;
+    } else if (fs::exists("/etc/init.d/S58guppyscreen")) {
+      int rc = sp::call("/etc/init.d/S58guppyscreen restart");
+      if (rc != 0) {
+        spdlog::warn("Restart Guppy Screen fallback: '/etc/init.d/S58guppyscreen restart' exited with code {}", rc);
+        return false;
+      }
+      return true;
+    } else {
+      spdlog::warn("Failed to restart Guppy Screen. Restart script not found: {}", init_script);
+      return false;
+    }
+  }
+
+  std::string get_heating_cancel_delay(State *s) {
+    if (s == nullptr) {
+      s = State::get_instance();
+    }
+    auto etarget_j = s->get_data("/printer_state/extruder/target"_json_pointer);
+    auto etemp_j   = s->get_data("/printer_state/extruder/temperature"_json_pointer);
+    auto btarget_j = s->get_data("/printer_state/heater_bed/target"_json_pointer);
+    auto btemp_j   = s->get_data("/printer_state/heater_bed/temperature"_json_pointer);
+    auto pdur_j    = s->get_data("/printer_state/print_stats/print_duration"_json_pointer);
+    double etarget = etarget_j.is_number() ? etarget_j.template get<double>() : 0.0;
+    double etemp   = etemp_j.is_number()   ? etemp_j.template get<double>()   : 0.0;
+    double btarget = btarget_j.is_number() ? btarget_j.template get<double>() : 0.0;
+    double btemp   = btemp_j.is_number()   ? btemp_j.template get<double>()   : 0.0;
+    double pdur    = pdur_j.is_number()    ? pdur_j.template get<double>()    : 1.0;
+    bool e_heating  = etarget > 0 && etemp < etarget - 2.0;
+    bool b_heating  = btarget > 0 && btemp < btarget - 2.0;
+    bool in_startup = pdur < 0.1;
+
+    std::string delay;
+    if (e_heating && b_heating)
+      delay = fmt::format("\n\nExtruder {:.0f}/{:.0f}°C + Bed {:.0f}/{:.0f}°C\n"
+                          "Cancel is queued and will run when heating finishes.", etemp, etarget, btemp, btarget);
+    else if (e_heating)
+      delay = fmt::format("\n\nExtruder heating: {:.0f}/{:.0f}°C\n"
+                          "Cancel is queued and will run when heating finishes.", etemp, etarget);
+    else if (b_heating)
+      delay = fmt::format("\n\nBed heating: {:.0f}/{:.0f}°C\n"
+                          "Cancel is queued and will run when heating finishes.", btemp, btarget);
+    else if (in_startup)
+      delay = "\n\nStartup in progress — cancel is queued\n"
+              "and will run when startup finishes.";
+
+    return delay;
+  }
+
+  void style_favorite_icon(lv_obj_t *fav_img, bool favorite) {
+    lv_obj_set_style_img_recolor_opa(fav_img, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_img_recolor(fav_img,
+      favorite ? lv_palette_main(LV_PALETTE_AMBER)
+               : lv_palette_lighten(LV_PALETTE_GREY, 2), LV_PART_MAIN);
   }
 }  // namespace KUtils
