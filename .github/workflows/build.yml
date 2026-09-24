@@ -26,17 +26,9 @@ jobs:
 
     runs-on: ubuntu-22.04
     container:
-      # NebulaOS Final Closure mission (2026-08-15): migrated from the
-      # standalone ghcr.io/coreflake1/guppydev:latest (mutable tag) to the
-      # same digest-pinned, NebulaOS-owned image NebulaOS-firmware's own
-      # build.sh uses (see manifests/dependencies.conf's BUILD_IMAGE_REPO/
-      # BUILD_IMAGE_DIGEST there, and docs/NEBULAOS_BUILD_ENVIRONMENT.md for
-      # what it contains). Bundles the identical Bootlin mips32el--musl
-      # toolchain guppydev provided - confirmed both toolchain prefixes this
-      # workflow's own matrix.arch expects (mipsel-buildroot-linux-musl-)
-      # resolve to real binaries in the new image before this migration was
-      # made, not assumed.
-      image: ghcr.io/coreflake1/nebulaos-build@sha256:a6ba57c69fa1ea630b037a1d1f55cf0c044a7f5a403bde9b155ea54bca1cceba
+      # Migrated to the same digest-pinned image OpenKE's own build.sh uses
+      # (see manifests/dependencies.conf BUILD_IMAGE_REPO/BUILD_IMAGE_DIGEST).
+      image: ghcr.io/openklipperedition/openke-build@sha256:6881c505c5d94c82c755cd54ffd97877977619d1ccaab2b3c7d68c94c52eb93a
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
@@ -50,11 +42,11 @@ jobs:
       # Final Closure mission: an arbitrary container UID (1001 above) has
       # no /etc/passwd entry in this image, so HOME defaults to "/" -
       # unwritable, breaks anything wanting a cache/config file (pip, git).
-      # Same real bug NebulaOS-firmware's own build.sh hit and fixed for
+      # Same real bug OpenKE-firmware's own build.sh hit and fixed for
       # this exact image - see its own comment on -e HOME=/tmp.
       HOME: /tmp
       # This image deliberately does NOT put the Bootlin toolchain on the
-      # global PATH (NebulaOS-firmware's own build-env/Dockerfile: its
+      # global PATH (OpenKE-firmware's own build-env/Dockerfile: its
       # bundled autoreconf/automake shadow the system ones a v4l-utils-
       # style autotools build needs - a real bug found and fixed there).
       # guppydev put it on PATH directly, which is what this workflow's

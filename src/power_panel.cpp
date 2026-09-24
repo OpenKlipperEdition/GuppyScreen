@@ -78,7 +78,7 @@ std::string PowerPanel::recoverable_print(std::string &display) {
 
   // NebulaOS PLR sidecar discovery
   const std::vector<std::string> plr_dirs = {
-    "/usr/data/nebulaos/printer_data/plr",
+    "/usr/data/openke/printer_data/plr",
     "/opt/printer_data/plr",
     "/usr/data/printer_data/plr"
   };
@@ -262,7 +262,7 @@ void PowerPanel::handle_callback(lv_event_t *e) {
       ws.gcode_script("NEBULAOS_PLR_DISCARD");
       // Clear sidecar files from disk
       const std::vector<std::string> plr_dirs = {
-        "/usr/data/nebulaos/printer_data/plr",
+        "/usr/data/openke/printer_data/plr",
         "/opt/printer_data/plr",
         "/usr/data/printer_data/plr"
       };

@@ -280,7 +280,7 @@ static bool is_git_commit_hash(const std::string &v) {
 
 static std::string get_remote_manifest_url() {
   std::vector<std::string> conf_paths = {
-    "/usr/data/nebulaos/openke-update.conf",
+    "/usr/data/openke/openke-update.conf",
     "/etc/openke-update.conf"
   };
   for (const auto &cp : conf_paths) {
@@ -391,7 +391,7 @@ static void scan_remote_repo(std::vector<UpdatePackageItem> &packages, const std
 static std::vector<std::string> get_dev_server_urls() {
   std::vector<std::string> urls;
   std::vector<std::string> conf_paths = {
-    "/usr/data/nebulaos/openke-update.conf",
+    "/usr/data/openke/openke-update.conf",
     "/usr/data/printer_data/config/openke-update.conf",
     "/etc/openke-update.conf",
     "/tmp/openke-dev-server.conf",
@@ -1032,12 +1032,12 @@ void UpdatePanel::check_first_boot_whats_new() {
   if (first_boot_checked) return;
   first_boot_checked = true;
 
-  std::string pending_file = "/usr/data/nebulaos/.pending_whats_new";
+  std::string pending_file = "/usr/data/openke/.pending_whats_new";
   if (!fs::exists(pending_file)) {
-    pending_file = "/usr/data/nebulaos/pending_changelog.txt";
-    if (!fs::exists(pending_file)) {
-      return;
-    }
+    pending_file = "/usr/data/openke/pending_changelog.txt";
+  }
+  if (!fs::exists(pending_file)) {
+    return;
   }
 
   std::string changelog_text;

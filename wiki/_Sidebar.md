@@ -32,9 +32,9 @@
 - [Contributing](Contributing)
 - [Publishing this wiki](Wiki-Publishing)
 
-**NebulaOS-specific**
+**OpenKE & NebulaOS Lineage**
 - [OpenKE relationship](OpenKE-Relationship)
-- [Integration with NebulaOS](Integration-with-NebulaOS)
+- [Integration with OpenKE](Integration-with-OpenKE)
 - [CI](CI)
 - [Testing](Testing)
 - [Config and theme](Config-and-Theme)

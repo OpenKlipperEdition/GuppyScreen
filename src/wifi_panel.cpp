@@ -165,7 +165,7 @@ WifiPanel::WifiPanel(std::mutex &l)
   lv_obj_set_width(pm_hint, LV_PCT(100));
   lv_label_set_long_mode(pm_hint, LV_LABEL_LONG_WRAP);
   lv_obj_set_style_text_align(pm_hint, LV_TEXT_ALIGN_CENTER, 0);
-  // Roaming policy is platform/kernel-owned on NebulaOS (ROAMOFF1 baseline
+  // Roaming policy is platform/kernel-owned on OpenKE (ROAMOFF1 baseline
   // variant), not this toggle's responsibility - see set_wifi_low_latency().
   lv_label_set_text(pm_hint, "steadier WiFi - no power-save/BT");
   lv_obj_set_style_text_font(pm_hint, &lv_font_montserrat_10, 0);

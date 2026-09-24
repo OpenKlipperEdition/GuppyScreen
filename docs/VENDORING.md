@@ -3,9 +3,9 @@
 > **NebulaOS Phase 0 cleanup (2026-08-16): the machinery this doc describes was deleted from this
 > repo.** Everything below — `k1/k1_mods/klipper_mods/`, `scripts/installer.sh`, the OpenRC/curl/
 > ft2font system-binary vendoring wired into that installer — was confirmed unreferenced by any
-> NebulaOS boot path (NebulaOS-firmware pins and cross-compiles this repo directly; see
-> [Integration with NebulaOS](../wiki/Integration-with-NebulaOS.md)) and removed as OpenKE-only
-> installer/patch weight. This is kept as historical/OpenKE reference only — do not expect any
+> NebulaOS or OpenKE boot path (OpenKE pins and cross-compiles this repo directly; see
+> [Integration with OpenKE](../wiki/Integration-with-OpenKE.md)) and removed as legacy
+> installer/patch weight. This is kept as historical reference only — do not expect any
 > command below to still work against this repo's current tree.
 
 *(Developer doc, OpenKE-era.)* OpenKE bundles a few third-party Klipper mods directly in the repo instead

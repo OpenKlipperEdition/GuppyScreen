@@ -16,7 +16,7 @@ import sys
 import tarfile
 
 PRINTER_DATA_DIR = "/opt/printer_data"
-BACKUP_DIR = "/usr/data/nebulaos/backups/printer_config"
+BACKUP_DIR = "/usr/data/openke/backups/printer_config"
 
 TARGETS = {
     "klipper": ("config", os.path.join(BACKUP_DIR, "backup_config.tar.gz")),

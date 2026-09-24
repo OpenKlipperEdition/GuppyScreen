@@ -7,7 +7,7 @@
 
 This document describes the `[z_compensate]` object's Klipper status contract - the
 structured, typed replacement for scanning `Z_OFFSET_CALIBRATION`'s human-readable
-`gcmd.respond_info()` text. It is consumed today by the `nebulaos-guppyscreen` fork's
+`gcmd.respond_info()` text. It is consumed today by the `openke-guppyscreen` fork's
 recalibration wizard via Moonraker's `printer.objects.subscribe`.
 
 This is a **project-specific object**, not an upstream Klipper object - `z_compensate.py`
@@ -97,7 +97,7 @@ A caller that wants to track *one specific invocation* it just triggered should:
    was already observed for the same id should never happen under this contract, but a
    subscriber must not action it if it somehow did.)
 
-This is exactly what `nebulaos-guppyscreen`'s `ZCompensateStatusTracker` implements
+This is exactly what `openke-guppyscreen`'s `ZCompensateStatusTracker` implements
 (`begin(baseline_id)` / `on_status()`, one terminal-latching boolean).
 
 ## Partial update handling
@@ -108,7 +108,7 @@ cycles may arrive as one combined update carrying only `calibration_state` and
 `calibration_z_offset` (not `calibration_id`, if it didn't change on this particular push -
 though in practice it always changes at the same instant `state` becomes `"running"`).
 **A subscriber must maintain its own merged view of the full object** rather than assuming
-every notification is self-contained. `nebulaos-guppyscreen` already has a general-purpose
+every notification is self-contained. `openke-guppyscreen` already has a general-purpose
 mechanism for this (`State::set_data()`, using `nlohmann::json::merge_patch` for every
 subscribed object, not something built specifically for this contract) - `z_compensate`
 relies on that existing merge, and any other subscriber to this object must do the
@@ -162,7 +162,7 @@ This is contract **v1**. If a future change needs to alter field types, remove a
 change what a state value means, it must not silently redefine this document's existing
 guarantees for existing subscribers - add a new field/state value (backward compatible) or
 bump this document's version and coordinate the change with every subscriber (currently
-only `nebulaos-guppyscreen`). `calibration_id` incrementing forever within one Klipper
+only `openke-guppyscreen`). `calibration_id` incrementing forever within one Klipper
 session is a deliberate design choice, not an implementation detail: it must remain
 monotonic for ID correlation (see above) to stay valid.
 

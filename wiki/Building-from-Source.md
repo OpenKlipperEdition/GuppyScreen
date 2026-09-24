@@ -1,7 +1,7 @@
 # Building from Source
 
 GuppyScreen uses a plain `Makefile`. There are three practical targets: the **SDL simulator** (x86
-desktop), the **MIPS/mipsel** build (the Ender-3 V3 KE hardware), and an **aarch64** build (other
+desktop), the **MIPS/mipsel** build (the Nebula Pad / Ender-3 V3 KE hardware), and an **aarch64** build (other
 boards; produced by CI). Dependencies are git submodules plus a vendored `wpa_supplicant`.
 
 ## Prerequisites
@@ -14,8 +14,8 @@ boards; produced by CI). Dependencies are git submodules plus a vendored `wpa_su
 ## 1. Clone with submodules
 
 ```bash
-git clone --recurse-submodules https://github.com/coreflake1/NebulaOS-guppyscreen.git
-cd NebulaOS-guppyscreen
+git clone --recurse-submodules https://github.com/OpenKlipperEdition/GuppyScreen.git
+cd GuppyScreen
 ```
 
 Submodules: `lvgl` (LVGL **v8**), `lv_drivers`, `libhv`, `spdlog`. `wpa_supplicant` is vendored in-tree.
@@ -63,17 +63,17 @@ To build the small-screen layout in the simulator, add `GUPPY_SMALL_SCREEN=1` to
 
 Output: `build/bin/guppyscreen`. See **[Development and Simulator](Development-and-Simulator)** to run it.
 
-## 4b. Cross-compile for the Ender-3 V3 KE (MIPS)
+## 4b. Cross-compile for the Nebula Pad / Ender-3 V3 KE (MIPS)
 
 Quick note before you start: this section is for standalone development. Neither this repo's CI nor
-a normal NebulaOS build use the `guppydev` image below anymore — both moved to
-`NebulaOS-firmware`'s unified build image (see its
-[Build Environment doc](https://github.com/coreflake1/NebulaOS-firmware/wiki/Build-Environment) and
+a normal OpenKE build use the `guppydev` image below anymore — both moved to
+`OpenKE`'s unified build image (see its
+[Build Environment doc](https://github.com/OpenKlipperEdition/OpenKE/wiki/Build-Environment) and
 [CI](CI)). `guppydev` still works fine for local, standalone iteration if you'd rather not pull the
 full unified image.
 
 The MIPS toolchain ships in a container image. This repo provides its own toolchain image via
-[`docker/Dockerfile`](https://github.com/coreflake1/NebulaOS-guppyscreen/blob/main/docker/Dockerfile),
+[`docker/Dockerfile`](https://github.com/OpenKlipperEdition/GuppyScreen/blob/main/docker/Dockerfile),
 published as `ghcr.io/coreflake1/guppydev`. Run the provided script **inside that container**; it
 rebuilds each dependency for MIPS and then builds GuppyScreen with `GUPPY_SMALL_SCREEN=1`:
 
@@ -99,7 +99,7 @@ docker build -t ghcr.io/coreflake1/guppydev:latest docker/
 ### The toolchain image
 
 Docker is used only to provide the cross-compilation *toolchain* (the app itself is built by `make`,
-not in a container). The image is defined by [`docker/Dockerfile`](https://github.com/coreflake1/NebulaOS-guppyscreen/blob/main/docker/Dockerfile):
+not in a container). The image is defined by [`docker/Dockerfile`](https://github.com/OpenKlipperEdition/GuppyScreen/blob/main/docker/Dockerfile):
 
 - **Base:** Ubuntu 22.04 + `build-essential`, `cmake`, `git`.
 - **MIPS:** Bootlin `mips32el--musl--stable-2024.02-1` (gcc 12.3.0) — provides both the

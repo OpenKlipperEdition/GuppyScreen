@@ -669,7 +669,7 @@ namespace KUtils {
       // (wme_apsd is intentionally left alone: changing it needs `wl down`,
       //  which would drop the connection.)
       //
-      // roam_off is deliberately NOT toggled here. On NebulaOS, WiFi firmware
+      // roam_off is deliberately NOT toggled here. On OpenKE, WiFi firmware
       // roaming is disabled permanently at the kernel level by the accepted
       // ROAMOFF1 baseline variant (wifi-roamoff-disable-variant.sh) - it's
       // platform-owned, not GuppyScreen's responsibility. Calling `wl roam_off

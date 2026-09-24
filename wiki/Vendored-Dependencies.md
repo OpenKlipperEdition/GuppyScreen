@@ -6,8 +6,8 @@ Two genuinely different things share the word "vendored" here — worth keeping 
 
 `lvgl` (LVGL v8), `lv_drivers`, `libhv`, `spdlog` — real git submodules, fetched by
 `git clone --recurse-submodules`. `wpa_supplicant` is vendored in-tree. These are used by every
-build, standalone or as part of NebulaOS — see
-[Building from Source](https://github.com/coreflake1/NebulaOS-firmware/wiki/Build-From-Source).
+build, standalone or as part of OpenKE — see
+[Building from Source](https://github.com/OpenKlipperEdition/OpenKE/wiki/Build-From-Source).
 
 ## The `docker/k1-bash-build/` toolchain reconstruction and `scripts/build-*-mipsel.sh`
 
@@ -19,8 +19,8 @@ rebuilding pieces of its toolchain and dependency chain from scratch if an upstr
 disappears. Real, credit-worthy work — see [`docker/README.md`](../docker/README.md) for the
 Pellcorp lineage behind the toolchain piece specifically.
 
-**A normal NebulaOS build or this repo's own CI never touches any of this.** These are rare,
-one-off maintenance/re-vendoring scripts carried over in the tree, not part of NebulaOS's current
+**A normal OpenKE build or this repo's own CI never touches any of this.** These are rare,
+one-off maintenance/re-vendoring scripts carried over in the tree, not part of OpenKE's current
 build or deployment path. See `docker/README.md` and `docs/VENDORING.md` for the full detail if
 you're specifically maintaining OpenKE's own installer chain.
 

@@ -601,10 +601,8 @@ void SysInfoPanel::show_reset_options() {
     "Deletes display config and sensor layout.\nGuppyScreen restarts with defaults."
   );
 
-  // NebulaOS Phase 0 cleanup: /etc/init.d/S58factoryreset is confirmed absent
-  // from NebulaOS-firmware's overlay - OpenKE's own emergency-reset script,
-  // with no NebulaOS equivalent yet (a real feature gap, not implemented
-  // here - see the architecture audit's M10 finding). Capability-gate this
+  // OpenKE Phase 0 cleanup: /etc/init.d/S58factoryreset is confirmed absent
+  // from OpenKE overlay. Capability-gate this
   // button the same way spoolman_btn is gated in setting_panel.cpp, rather
   // than leaving a dead button with no user-visible error.
   bool have_factory_reset = fs::exists("/etc/init.d/S58factoryreset");
@@ -612,7 +610,7 @@ void SysInfoPanel::show_reset_options() {
     "Factory Reset Printer",
     have_factory_reset
       ? "Wipes OpenKE, Klipper config, gcodes and\ncalibration. Reboots to stock Creality firmware."
-      : "Not available on this build - NebulaOS has\nno factory-reset/recovery script yet."
+      : "Not available on this build - OpenKE has\nno factory-reset/recovery script yet."
   );
   if (!have_factory_reset) {
     // Disable the button and its label/desc children, same as

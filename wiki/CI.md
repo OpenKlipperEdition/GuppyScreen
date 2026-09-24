@@ -4,7 +4,7 @@
 on pushes to `main`/`develop`/`ke-next` and on tags.
 
 Since the Final Closure mission (2026-08-15), it runs inside the same digest-pinned
-`ghcr.io/coreflake1/nebulaos-build` image `NebulaOS-firmware`'s own `build.sh` uses — not the
+`ghcr.io/openklipperedition/openke-build` image `OpenKE`'s own `build.sh` uses — not the
 retired standalone `ghcr.io/coreflake1/guppydev:latest`. We confirmed both toolchain prefixes the
 workflow's matrix expects actually resolve to real binaries in the new image before switching.
 Two real gotchas came up during that migration, both explained right in the workflow file's own
@@ -20,6 +20,6 @@ GitHub Wiki on every push to `main` that touches `wiki/**`. See [Wiki Publishing
 for how that works — and a real failure it hit (2026-08-14, fixed the next day) because the wiki
 had never had a first page yet.
 
-See also: [Integration with NebulaOS](Integration-with-NebulaOS), and
-[NebulaOS-firmware's Build Environment doc](https://github.com/coreflake1/NebulaOS-firmware/wiki/Build-Environment)
+See also: [Integration with OpenKE](Integration-with-OpenKE), and
+[OpenKE's Build Environment doc](https://github.com/OpenKlipperEdition/OpenKE)
 for what's actually in that shared image.

@@ -2,8 +2,8 @@
 
 *(Developer doc.)* The pages you're reading live as Markdown in the **`wiki/` folder of the main repo**.
 That folder is the source of truth — edit it in a normal pull request like any other code. GitHub's
-**Wiki tab** (`github.com/coreflake1/NebulaOS-guppyscreen/wiki`) is a *separate* git repository
-(`...NebulaOS-guppyscreen.wiki.git`), so the files have to be copied across to actually appear there.
+**Wiki tab** (`github.com/OpenKlipperEdition/GuppyScreen/wiki`) is a *separate* git repository
+(`...GuppyScreen.wiki.git`), so the files have to be copied across to actually appear there.
 This mechanism (and this file) was inherited from the OpenKE fork this repo started from — the CI
 workflow below correctly self-targets this repo's own wiki (`INPUT_REPOSITORY` resolves from
 `github.context`, not a hardcoded value), it's just this doc's example URLs that needed updating.
@@ -65,10 +65,10 @@ push:
 # one-time: clone the wiki repo (must have at least one page created via the Wiki tab first —
 # a genuinely empty GitHub wiki's .wiki.git doesn't exist yet and this clone will 404 until then;
 # confirmed live 2026-08-15, the same way the CI job above failed the same way on 2026-08-14)
-git clone https://github.com/coreflake1/NebulaOS-guppyscreen.wiki.git /tmp/nebulaos-guppyscreen-wiki
+git clone https://github.com/OpenKlipperEdition/GuppyScreen.wiki.git /tmp/openke-guppyscreen-wiki
 
 # each publish:
-cp wiki/*.md /tmp/nebulaos-guppyscreen-wiki/
-cd /tmp/nebulaos-guppyscreen-wiki
+cp wiki/*.md /tmp/openke-guppyscreen-wiki/
+cd /tmp/openke-guppyscreen-wiki
 git add -A && git commit -m "Sync wiki from main@<short-sha>" && git push
 ```

@@ -2,14 +2,14 @@
 
 Heads up before you dive in: most of this doc is generic GuppyScreen development material — useful
 for iterating on the x86_64 simulator and getting familiar with the codebase, but it's not how
-NebulaOS's own MIPS build actually happens. The real NebulaOS build and CI both cross-compile this
-repo inside `NebulaOS-firmware`'s unified build image, not the standalone `mips-gcc720` toolchain
+OpenKE's own MIPS build actually happens. The real OpenKE build and CI both cross-compile this
+repo inside `OpenKE`'s unified build image, not the standalone `mips-gcc720` toolchain
 download in the "Mipsel Tool chain" section below. That older toolchain is still documented here
 because the manual steps are a perfectly fine way to work on the simulator — just know it's not
 what CI actually uses anymore. See
-[`wiki/Building-from-Source`](https://github.com/coreflake1/NebulaOS-guppyscreen/wiki/Building-from-Source)
-for the current NebulaOS build picture, and
-[`NebulaOS-firmware`'s Build Environment doc](https://github.com/coreflake1/NebulaOS-firmware/wiki/Build-Environment)
+[`wiki/Building-from-Source`](wiki/Building-from-Source.md)
+for the build picture, and
+[`OpenKE`](https://github.com/OpenKlipperEdition/OpenKE)
 for what's actually in that image.
 
 This repository contains the Guppy Screen source code and all its external dependencies.
@@ -57,7 +57,7 @@ To build guppyscreen for Mipsel (Ingenic X2000E) - specific to the K1 SoC, you w
 
 Clone the guppyscreen repo (and submodules) and apply a couple of patches locally.
 
-1. `git clone --recursive https://github.com/coreflake1/NebulaOS-guppyscreen && cd NebulaOS-guppyscreen`
+1. `git clone --recursive https://github.com/OpenKlipperEdition/GuppyScreen && cd GuppyScreen`
 2. `(cd lv_drivers/ && git apply ../patches/0001-lv_driver_fb_ioctls.patch)`
 3. `(cd spdlog/ && git apply ../patches/0002-spdlog_fmt_initializer_list.patch)`
 

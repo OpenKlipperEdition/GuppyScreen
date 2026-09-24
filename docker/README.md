@@ -4,9 +4,9 @@ You may still see `pellcorp/k1-bash-build` referenced in a few vendoring scripts
 (`scripts/build-{nginx,pillow,streaming-form-data,curl,openrc,ft2font}-mipsel.sh`). That's
 intentional, not a stale leftover — these scripts are for rebuilding some old target-side
 third-party libraries with the exact ABI they were originally built for, inherited from this
-repo's OpenKE lineage. **The normal NebulaOS build and this repo's own CI don't touch this
+repo's OpenKE lineage. **The normal OpenKE build and this repo's own CI don't touch this
 directory at all.** See
-[Vendored Dependencies](https://github.com/coreflake1/NebulaOS-guppyscreen/wiki/Vendored-Dependencies)
+[Vendored Dependencies](https://github.com/OpenKlipperEdition/GuppyScreen/wiki/Vendored-Dependencies)
 for the full picture of what's current vs. inherited-but-not-current.
 
 Here's the actual problem these scripts solve: each `scripts/build-*-mipsel.sh` script pins its
@@ -40,12 +40,11 @@ docker tag openke-k1-bash-build:local pellcorp/k1-bash-build@sha256:0b96d1d65175
 You'd only need to rebuild this if the pinned upstream image actually becomes unavailable — day to
 day, the pinned digest is simpler and already reproducible on its own.
 
-## GuppyScreen's own toolchain (this is what a normal NebulaOS build actually uses)
+## GuppyScreen's own toolchain (this is what a normal OpenKE build actually uses)
 
 GuppyScreen itself (the touchscreen binary) builds with a different toolchain — musl, fully static.
-As of 2026-08-15, both the normal NebulaOS build and this repo's own CI cross-compile it inside
-`NebulaOS-firmware`'s unified build image — see
-[`NebulaOS-firmware`'s Build Environment doc](https://github.com/coreflake1/NebulaOS-firmware/wiki/Build-Environment).
+Both the normal OpenKE build and this repo's own CI cross-compile it inside
+`OpenKE`'s unified build image — see the primary [`OpenKE`](https://github.com/OpenKlipperEdition/OpenKE) repository.
 
 Before that, this used a separate, standalone image, `ghcr.io/coreflake1/guppydev` (built from
 [`docker/Dockerfile`](../docker/Dockerfile), top-level, not under this directory). That image's

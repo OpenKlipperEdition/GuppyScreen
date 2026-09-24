@@ -255,9 +255,9 @@ void CalibrationMenuPanel::init(json &j) {
   // drives is a gcode macro (CALIBRATE_ESTEPS, _CALIBRATE_ESTEPS_EXTRUDE,
   // CALIBRATE_ESTEPS_APPLY, _CALIBRATE_ESTEPS_CANCEL) that lived only in
   // k1/k1_mods/klipper_mods/esteps_calibration/esteps_calibration.cfg, which
-  // the OpenKE stock-firmware installer copied into the printer's config dir.
-  // That installer and that .cfg are both deleted (confirmed-dead OpenKE
-  // baggage), and NebulaOS-firmware has never shipped these macros in its own
+  // the legacy stock-firmware installer copied into the printer's config dir.
+  // That installer and that .cfg are both deleted (confirmed-dead legacy
+  // baggage), and NebulaOS / OpenKE firmware has never shipped these macros in its own
   // overlay (grepped: zero CALIBRATE_ESTEPS anywhere in that repo). Without
   // them the panel heats the hotend, then waits forever for an ESTEPS_HEATING
   // marker that can never arrive - strictly worse than not offering it.

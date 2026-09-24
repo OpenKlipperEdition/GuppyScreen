@@ -1,4 +1,4 @@
-# Installation (Ender-3 V3 KE)
+# Installation (Nebula Pad / Ender-3 V3 KE)
 
 > ⚠️ **Back up your printer config before installing.** The installer modifies init scripts,
 > `printer.cfg`, and some Klipper extras. It saves backups to `/usr/data/guppyify-backup/`, but you

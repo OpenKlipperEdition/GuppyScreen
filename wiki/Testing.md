@@ -20,4 +20,4 @@ from `NebulaOS-klipper`'s `z_compensate` module — see
 For interactive/visual work, build the SDL simulator target (see
 [Development and Simulator](Development-and-Simulator)) instead of round-tripping to real hardware
 for every UI tweak. Real-hardware qualification is still the actual gate before anything ships —
-see [Integration with NebulaOS](Integration-with-NebulaOS).
+see [Integration with OpenKE](Integration-with-OpenKE).

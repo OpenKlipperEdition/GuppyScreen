@@ -13,9 +13,9 @@ namespace sp = subprocess;
 LV_IMG_DECLARE(back);
 LV_IMG_DECLARE(print);
 
-static const char *DEFAULT_SEEDS_DIR = "/opt/nebulaos-seeds/printer_profiles";
-static const char *USER_PROFILES_DIR = "/usr/data/nebulaos/printer_profiles";
-static const char *ACTIVE_MARKER_PATH = "/usr/data/nebulaos/system/active-profile.json";
+static const char *DEFAULT_SEEDS_DIR = "/opt/openke-seeds/printer_profiles";
+static const char *USER_PROFILES_DIR = "/usr/data/openke/printer_profiles";
+static const char *ACTIVE_MARKER_PATH = "/usr/data/openke/system/active-profile.json";
 
 PrinterProfilePanel::PrinterProfilePanel(KWebSocketClient &c)
   : ws(c)
@@ -102,6 +102,7 @@ void PrinterProfilePanel::refresh_profiles() {
 
   std::vector<std::string> search_dirs;
   if (fs::exists(USER_PROFILES_DIR)) search_dirs.push_back(USER_PROFILES_DIR);
+
   if (fs::exists(DEFAULT_SEEDS_DIR)) search_dirs.push_back(DEFAULT_SEEDS_DIR);
 
   for (const auto &sdir : search_dirs) {
@@ -139,7 +140,8 @@ void PrinterProfilePanel::refresh_profiles() {
             if (fs::exists(photo)) {
               item.photo_path = photo.string();
             } else {
-              auto seed_photo = fs::path(DEFAULT_SEEDS_DIR) / pid / "machinephoto.png";
+              auto seed_base = DEFAULT_SEEDS_DIR;
+              auto seed_photo = fs::path(seed_base) / pid / "machinephoto.png";
               if (fs::exists(seed_photo)) {
                 item.photo_path = seed_photo.string();
               }
@@ -181,7 +183,7 @@ void PrinterProfilePanel::build_profile_list() {
 
   if (profiles.empty()) {
     lv_obj_t *empty_lbl = lv_label_create(list_cont);
-    lv_label_set_text(empty_lbl, "No printer profiles found in /opt/nebulaos-seeds/printer_profiles");
+    lv_label_set_text(empty_lbl, "No printer profiles found");
     lv_obj_center(empty_lbl);
     return;
   }

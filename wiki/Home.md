@@ -1,10 +1,6 @@
-> **This wiki describes OpenKE**, a separate project from NebulaOS that installs onto stock Creality
-> firmware via SSH. This repository (`NebulaOS-guppyscreen`) is a NebulaOS component, inherited this
-> wiki from the same fork lineage, and is consumed as a pinned build dependency of
-> [`NebulaOS-firmware`](https://github.com/coreflake1/NebulaOS-firmware) instead — most of the
-> installation/upgrading/troubleshooting content below describes OpenKE's own distribution model, not
-> how NebulaOS builds or deploys this code. See this repo's root
-> [`README.md`](https://github.com/coreflake1/NebulaOS-guppyscreen#readme) for the NebulaOS context.
+> **OpenKE GuppyScreen** is the dedicated touchscreen interface for the **OpenKE** operating system ([OpenKlipperEdition](https://github.com/OpenKlipperEdition)).
+> OpenKE is an open-source fork of NebulaOS that integrates GuppyScreen natively into the dual-slot A/B system image and continues to use all companion NebulaOS Klipper extensions (`NebulaOS-klipper-extensions`).
+> This repository is pinned and built directly by [`OpenKE`](https://github.com/OpenKlipperEdition/OpenKE). For complete operating system builds and installation guides, refer to the primary [OpenKE repository](https://github.com/OpenKlipperEdition/OpenKE).
 
 # OpenKE — perfect prints on the Ender-3 V3 KE
 
@@ -65,17 +61,17 @@ your problem:
 
 ## Will it run on my printer?
 
-OpenKE is built and verified for the **Creality Ender-3 V3 KE** specifically.
+OpenKE is built for the **Creality Nebula Pad** hardware platform (powered by the Ingenic XBurst2 X2000 MIPS SoC).
 
 | | |
 |---|---|
-| Printer | Creality Ender-3 V3 KE |
-| Chip / arch | Ingenic XBurst2 X2000 — **MIPS (mipsel)**, *not* aarch64 |
-| Display | 480×272 |
+| **Hardware Platform** | Creality Nebula Pad / Nebula Smart Kit ecosystem |
+| **Reference Target** | Creality Ender-3 V3 KE (primary tested & fully qualified baseline) |
+| **Printer Roadmap** | All printers compatible with Creality's Nebula Smart Kit (Ender-3 V3 SE, V2, V2 Neo, S1, Pro, CR-10 SE) |
+| **Chip / arch** | Ingenic XBurst2 X2000 — **MIPS (mipsel)**, *not* aarch64 |
+| **Display** | 480×272 touchscreen |
 
-The code can build for other boards/screens (and an x86 simulator for development), but the installer and
-the on-device fixes here are written for the KE. If you have a different printer, this isn't the droid
-you're looking for.
+The operating system runs directly on the Nebula Pad, with the Ender-3 V3 KE serving as the primary development and reference baseline. OpenKE includes a multi-printer profile manager designed to support the entire family of printers that Creality's Nebula Smart Kit targets. The code can also build for other screens and an x86 SDL simulator for development.
 
 ## Building it / contributing
 
