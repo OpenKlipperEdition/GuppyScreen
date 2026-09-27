@@ -1,4 +1,5 @@
 #include "update_panel.h"
+#include "guppyscreen.h"
 #include "utils.h"
 #include "spdlog/spdlog.h"
 #include "subprocess.hpp"
@@ -862,6 +863,7 @@ void UpdatePanel::close_usb_detect_popup() {
 }
 
 void UpdatePanel::show_usb_detect_popup(const UpdatePackageItem &pkg) {
+  if (GuppyScreen::is_calibrating_touch()) return;
   close_usb_detect_popup();
 
   pending_usb_package = pkg;
@@ -918,6 +920,7 @@ void UpdatePanel::show_usb_detect_popup(const UpdatePackageItem &pkg) {
 }
 
 void UpdatePanel::check_usb_auto_detect() {
+  if (GuppyScreen::is_calibrating_touch()) return;
   if (state != UpdateState::IDLE) return;
   if (KUtils::is_printing() || KUtils::is_paused()) return;
 
@@ -1029,6 +1032,7 @@ void UpdatePanel::show_first_boot_whats_new_popup(const std::string &version, co
 }
 
 void UpdatePanel::check_first_boot_whats_new() {
+  if (GuppyScreen::is_calibrating_touch()) return;
   if (first_boot_checked) return;
   first_boot_checked = true;
 

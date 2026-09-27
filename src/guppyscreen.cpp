@@ -32,6 +32,7 @@ lv_obj_t *GuppyScreen::screen_saver = NULL;
 KWebSocketClient GuppyScreen::ws(NULL);
 
 std::mutex GuppyScreen::lv_lock;
+bool GuppyScreen::calibrating_touch = false;
 
 GuppyScreen::GuppyScreen()
   : spoolman_panel(ws, lv_lock)
@@ -208,6 +209,7 @@ GuppyScreen *GuppyScreen::init(std::function<void(lv_color_t, lv_color_t)> hal_i
     if (is_calibrated) {
       auto calibration_coeff = conf->get_json("/touch_calibration_coeff");
       if (calibration_coeff.is_null()) {
+        calibrating_touch = true;
         lv_tc_register_coeff_save_cb(&GuppyScreen::save_calibration_coeff);
         lv_obj_t *touch_calibrate_scr = lv_tc_screen_create();
 
@@ -327,6 +329,7 @@ void GuppyScreen::new_theme_apply_cb(lv_theme_t *th, lv_obj_t *obj) {
 }
 
 void GuppyScreen::handle_calibrated(lv_event_t *event) {
+  calibrating_touch = false;
   spdlog::info("finished touch calibration, auto-displaying printer model selection");
   lv_obj_t *main_screen = (lv_obj_t *)event->user_data;
   lv_disp_load_scr(main_screen);
@@ -335,6 +338,17 @@ void GuppyScreen::handle_calibrated(lv_event_t *event) {
   if (gs != nullptr) {
     gs->get_main_panel().get_setting_panel().get_printer_profile_panel().foreground();
   }
+}
+
+bool GuppyScreen::is_calibrating_touch() {
+  if (calibrating_touch) {
+    return true;
+  }
+  lv_obj_t *act = lv_scr_act();
+  if (act != nullptr && lv_obj_check_type(act, &lv_tc_screen_class)) {
+    return true;
+  }
+  return false;
 }
 
 void GuppyScreen::save_calibration_coeff(lv_tc_coeff_t coeff) {

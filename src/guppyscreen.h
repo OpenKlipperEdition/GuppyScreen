@@ -29,6 +29,7 @@ class GuppyScreen {
 #endif
   static std::mutex lv_lock;
   static KWebSocketClient ws;
+  static bool calibrating_touch;
 
   SpoolmanPanel spoolman_panel;
   MainPanel main_panel;
@@ -52,6 +53,7 @@ class GuppyScreen {
   static void handle_calibrated(lv_event_t *event);
   static void save_calibration_coeff(lv_tc_coeff_t coeff);
   static void refresh_theme();
+  static bool is_calibrating_touch();
 };
 
 #endif  // __GUPPY_SCREEN_H__
