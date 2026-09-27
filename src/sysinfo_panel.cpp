@@ -62,16 +62,14 @@ static const SleepOption sleep_options[] = {
   {"1 Hour", 3600}
 };
 
-// Brightness presets as percentages of the device's max_brightness. 10% is
-// the floor (chosen to keep the screen readable enough to navigate back to
-// this menu and recover from a too-dark setting).
+// Brightness presets as percentages of the device's max_brightness. 25% is
+// the floor (chosen to match the hardware's minimum PWM duty cycle).
 struct BrightnessOption {
   const char *label;
   int percent;
 };
 
 static const BrightnessOption brightness_options[] = {
-  {"Low (10%)",    10},
   {"Dim (25%)",    25},
   {"Medium (50%)", 50},
   {"Bright (75%)", 75},
