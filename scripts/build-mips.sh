@@ -13,15 +13,16 @@ cd "$WORKDIR"
 echo "=== MIPS build: CROSS_COMPILE=$CROSS_COMPILE ==="
 
 # Backup aarch64 libraries
-cp libhv/lib/libhv.a /tmp/libhv.a.bak
-cp spdlog/build/libspdlog.a /tmp/libspdlog.a.bak
-cp wpa_supplicant/wpa_supplicant/libwpa_client.a /tmp/libwpa_client.a.bak
+[ -f libhv/lib/libhv.a ] && cp libhv/lib/libhv.a /tmp/libhv.a.bak || true
+[ -f spdlog/build/libspdlog.a ] && cp spdlog/build/libspdlog.a /tmp/libspdlog.a.bak || true
+[ -f wpa_supplicant/wpa_supplicant/libwpa_client.a ] && cp wpa_supplicant/wpa_supplicant/libwpa_client.a /tmp/libwpa_client.a.bak || true
 
 restore_libs() {
     echo "=== Restoring original libraries ==="
-    cp /tmp/libhv.a.bak libhv/lib/libhv.a
-    cp /tmp/libspdlog.a.bak spdlog/build/libspdlog.a
-    cp /tmp/libwpa_client.a.bak wpa_supplicant/wpa_supplicant/libwpa_client.a
+    cd "$WORKDIR"
+    [ -f /tmp/libhv.a.bak ] && cp /tmp/libhv.a.bak libhv/lib/libhv.a || true
+    [ -f /tmp/libspdlog.a.bak ] && cp /tmp/libspdlog.a.bak spdlog/build/libspdlog.a || true
+    [ -f /tmp/libwpa_client.a.bak ] && cp /tmp/libwpa_client.a.bak wpa_supplicant/wpa_supplicant/libwpa_client.a || true
 }
 trap restore_libs EXIT
 
@@ -57,6 +58,7 @@ cmake .. \
     -DCMAKE_BUILD_TYPE=Release \
     2>&1 | tail -5
 make -j"$JOBS" 2>&1 | tail -5
+mkdir -p "$WORKDIR/spdlog/build"
 cp libspdlog.a "$WORKDIR/spdlog/build/libspdlog.a"
 cd "$WORKDIR"
 

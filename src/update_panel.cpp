@@ -304,14 +304,35 @@ static void scan_remote_repo(std::vector<UpdatePackageItem> &packages, const std
   std::string tmp_manifest = "/tmp/openke-remote-releases.json";
   unlink(tmp_manifest.c_str());
 
-  std::string cmd = "curl -s -k -m 4 -L '" + manifest_url + "' -o '" + tmp_manifest + "' 2>/dev/null";
+  std::string cmd = "curl -s -f -k -m 4 -L '" + manifest_url + "' -o '" + tmp_manifest + "' 2>/dev/null";
   int rc = system(cmd.c_str());
+  if ((rc != 0 || !fs::exists(tmp_manifest) || fs::file_size(tmp_manifest) == 0) &&
+      manifest_url.find("/OpenKlipperEdition/OpenKE/main/") != std::string::npos) {
+    std::string fallback_url = manifest_url;
+    size_t pos = fallback_url.find("/OpenKlipperEdition/OpenKE/main/");
+    if (pos != std::string::npos) {
+      fallback_url.replace(pos, 32, "/OpenKlipperEdition/OpenKE/brupdate/");
+      cmd = "curl -s -f -k -m 4 -L '" + fallback_url + "' -o '" + tmp_manifest + "' 2>/dev/null";
+      rc = system(cmd.c_str());
+    }
+  }
   if (rc != 0 || !fs::exists(tmp_manifest) || fs::file_size(tmp_manifest) == 0) {
     return;
   }
 
   std::ifstream f(tmp_manifest);
   if (!f.is_open()) return;
+
+  char first_char = 0;
+  while (f >> std::ws && f.get(first_char)) {
+    if (first_char == '{' || first_char == '[') {
+      f.unget();
+      break;
+    } else {
+      unlink(tmp_manifest.c_str());
+      return;
+    }
+  }
 
   try {
     json j = json::parse(f);
@@ -487,13 +508,13 @@ static void scan_dev_servers(std::vector<UpdatePackageItem> &packages, const std
 
     std::string tmp_manifest = "/tmp/openke-dev-manifest.json";
     unlink(tmp_manifest.c_str());
-    std::string cmd = "curl -s -k -m 2 -L '" + manifest_url + "' -o '" + tmp_manifest + "' 2>/dev/null";
+    std::string cmd = "curl -s -f -k -m 2 -L '" + manifest_url + "' -o '" + tmp_manifest + "' 2>/dev/null";
     int rc = system(cmd.c_str());
 
     bool manifest_ok = (rc == 0 && fs::exists(tmp_manifest) && fs::file_size(tmp_manifest) > 0);
     if (!manifest_ok && manifest_url == (base_url + "/releases.json")) {
       manifest_url = base_url + "/manifest.json";
-      cmd = "curl -s -k -m 2 -L '" + manifest_url + "' -o '" + tmp_manifest + "' 2>/dev/null";
+      cmd = "curl -s -f -k -m 2 -L '" + manifest_url + "' -o '" + tmp_manifest + "' 2>/dev/null";
       rc = system(cmd.c_str());
       manifest_ok = (rc == 0 && fs::exists(tmp_manifest) && fs::file_size(tmp_manifest) > 0);
     }
@@ -501,8 +522,20 @@ static void scan_dev_servers(std::vector<UpdatePackageItem> &packages, const std
     if (manifest_ok) {
       std::ifstream f(tmp_manifest);
       if (f.is_open()) {
-        try {
-          json j = json::parse(f);
+        char first_char = 0;
+        bool valid_start = false;
+        while (f >> std::ws && f.get(first_char)) {
+          if (first_char == '{' || first_char == '[') {
+            f.unget();
+            valid_start = true;
+            break;
+          } else {
+            break;
+          }
+        }
+        if (valid_start) {
+          try {
+            json j = json::parse(f);
           if (j.contains("releases") && j["releases"].is_array()) {
             for (const auto &rel : j["releases"]) {
               if (!rel.contains("url") && !rel.contains("filename")) continue;
@@ -559,6 +592,7 @@ static void scan_dev_servers(std::vector<UpdatePackageItem> &packages, const std
           spdlog::warn("Dev server manifest parse error: {}", e.what());
         }
       }
+    }
       unlink(tmp_manifest.c_str());
     } else {
       std::vector<std::string> swu_probes = { "openke-update.swu", "openke-update-1.0.0.swu" };
