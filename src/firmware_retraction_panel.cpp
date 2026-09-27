@@ -165,13 +165,13 @@ void FirmwareRetractionPanel::build_row(Field &f) {
 double FirmwareRetractionPanel::cur_value(const Field &f) {
   auto v = State::get_instance()->get_data(
     json::json_pointer(std::string("/printer_state/firmware_retraction/") + f.key));
-  return v.is_number() ? v.template get<double>() : NAN;
+  return v.is_number() ? v.template get<double>() : std::nan("");
 }
 
 double FirmwareRetractionPanel::config_default(const Field &f) {
   auto v = State::get_instance()->get_data(
     json::json_pointer(std::string("/printer_state/configfile/settings/firmware_retraction/") + f.key));
-  return v.is_number() ? v.template get<double>() : NAN;
+  return v.is_number() ? v.template get<double>() : std::nan("");
 }
 
 void FirmwareRetractionPanel::send_field(const Field &f, double value) {
