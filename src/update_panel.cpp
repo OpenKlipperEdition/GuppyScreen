@@ -103,14 +103,16 @@ UpdatePanel::~UpdatePanel() {
 void UpdatePanel::foreground() {
   close_whats_new_popup();
   close_usb_detect_popup();
-  scan_updates(true);
-  build_package_list();
+  if (state != UpdateState::FLASHING && state != UpdateState::SUCCESS) {
+    scan_updates(true);
+    build_package_list();
+  }
   lv_obj_move_foreground(cont);
 }
 
 void UpdatePanel::background() {
-  if (state == UpdateState::FLASHING) {
-    // Do not allow exiting panel while flashing
+  if (state == UpdateState::FLASHING || state == UpdateState::SUCCESS) {
+    // Do not allow exiting panel while flashing or after successful install awaiting reboot
     return;
   }
   close_modal();
@@ -121,8 +123,14 @@ void UpdatePanel::handle_callback(lv_event_t *event) {
   if (lv_event_get_code(event) == LV_EVENT_CLICKED) {
     lv_obj_t *target = lv_event_get_current_target(event);
     if (target == back_btn.get_container()) {
+      if (state == UpdateState::FLASHING || state == UpdateState::SUCCESS) {
+        return;
+      }
       background();
     } else if (target == scan_btn.get_container()) {
+      if (state == UpdateState::FLASHING || state == UpdateState::SUCCESS) {
+        return;
+      }
       scan_updates(true);
       build_package_list();
     }
@@ -1102,6 +1110,10 @@ void UpdatePanel::close_modal() {
   if (modal_cont != nullptr) {
     lv_obj_del(modal_cont);
     modal_cont = nullptr;
+    progress_bar = nullptr;
+    progress_label = nullptr;
+    status_label = nullptr;
+    reboot_btn = nullptr;
   }
 }
 
@@ -1116,25 +1128,50 @@ void UpdatePanel::show_confirmation_modal(const UpdatePackageItem &pkg) {
   std::string active_slot = slot2_active ? "Slot 2" : "Slot 1";
   std::string target_slot = slot2_active ? "Slot 1" : "Slot 2";
 
+  // Full-screen modal overlay / backdrop
   modal_cont = lv_obj_create(cont);
   lv_obj_add_flag(modal_cont, LV_OBJ_FLAG_FLOATING);
-  lv_obj_set_size(modal_cont, LV_PCT(90), LV_PCT(88));
+  lv_obj_set_size(modal_cont, LV_PCT(100), LV_PCT(100));
   lv_obj_center(modal_cont);
   lv_obj_move_foreground(modal_cont);
-  lv_obj_set_style_bg_color(modal_cont, lv_palette_darken(LV_PALETTE_GREY, 4), 0);
-  lv_obj_set_style_bg_opa(modal_cont, LV_OPA_COVER, 0);
-  lv_obj_set_style_border_color(modal_cont, lv_palette_main(LV_PALETTE_BLUE), 0);
-  lv_obj_set_style_border_width(modal_cont, 2, 0);
-  lv_obj_set_style_radius(modal_cont, 12, 0);
-  lv_obj_set_style_pad_all(modal_cont, 16, 0);
+  lv_obj_set_style_bg_color(modal_cont, lv_color_black(), 0);
+  lv_obj_set_style_bg_opa(modal_cont, LV_OPA_70, 0);
+  lv_obj_set_style_border_width(modal_cont, 0, 0);
+  lv_obj_set_style_pad_all(modal_cont, 0, 0);
   lv_obj_clear_flag(modal_cont, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(modal_cont, LV_OBJ_FLAG_CLICKABLE);
 
-  lv_obj_t *title = lv_label_create(modal_cont);
+  // Touching the backdrop outside the dialog card in CONFIRMING state dismisses the dialog
+  lv_obj_add_event_cb(modal_cont, [](lv_event_t *e) {
+    auto *self = static_cast<UpdatePanel*>(e->user_data);
+    lv_obj_t *target = lv_event_get_target(e);
+    lv_obj_t *current_target = lv_event_get_current_target(e);
+    if (target == current_target) {
+      if (self->state == UpdateState::CONFIRMING) {
+        self->state = UpdateState::IDLE;
+        self->close_modal();
+      }
+    }
+  }, LV_EVENT_CLICKED, this);
+
+  // Dialog card inside overlay
+  lv_obj_t *card = lv_obj_create(modal_cont);
+  lv_obj_set_size(card, LV_PCT(90), LV_PCT(88));
+  lv_obj_center(card);
+  lv_obj_set_style_bg_color(card, lv_palette_darken(LV_PALETTE_GREY, 4), 0);
+  lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_color(card, lv_palette_main(LV_PALETTE_BLUE), 0);
+  lv_obj_set_style_border_width(card, 2, 0);
+  lv_obj_set_style_radius(card, 12, 0);
+  lv_obj_set_style_pad_all(card, 16, 0);
+  lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+
+  lv_obj_t *title = lv_label_create(card);
   lv_label_set_text(title, pkg.is_remote ? "Confirm Remote Firmware Update" : "Confirm System Firmware Update");
   lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
   lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 0);
 
-  lv_obj_t *content_cont = lv_obj_create(modal_cont);
+  lv_obj_t *content_cont = lv_obj_create(card);
   lv_obj_set_size(content_cont, LV_PCT(100), LV_PCT(68));
   lv_obj_align(content_cont, LV_ALIGN_TOP_MID, 0, 26);
   lv_obj_set_flex_flow(content_cont, LV_FLEX_FLOW_COLUMN);
@@ -1187,7 +1224,7 @@ void UpdatePanel::show_confirmation_modal(const UpdatePackageItem &pkg) {
   }
 
   // Cancel button
-  lv_obj_t *cancel_btn = lv_btn_create(modal_cont);
+  lv_obj_t *cancel_btn = lv_btn_create(card);
   lv_obj_set_size(cancel_btn, 130, 44);
   lv_obj_align(cancel_btn, LV_ALIGN_BOTTOM_LEFT, 10, 0);
   lv_obj_set_style_bg_color(cancel_btn, lv_palette_darken(LV_PALETTE_GREY, 2), 0);
@@ -1202,7 +1239,7 @@ void UpdatePanel::show_confirmation_modal(const UpdatePackageItem &pkg) {
   }, LV_EVENT_CLICKED, this);
 
   // Confirm button
-  lv_obj_t *confirm_btn = lv_btn_create(modal_cont);
+  lv_obj_t *confirm_btn = lv_btn_create(card);
   lv_obj_set_size(confirm_btn, 160, 44);
   lv_obj_align(confirm_btn, LV_ALIGN_BOTTOM_RIGHT, -10, 0);
   lv_obj_set_style_bg_color(confirm_btn, printing ? lv_palette_darken(LV_PALETTE_GREY, 3) : lv_palette_main(LV_PALETTE_GREEN), 0);
@@ -1232,43 +1269,69 @@ void UpdatePanel::show_confirmation_modal(const UpdatePackageItem &pkg) {
 void UpdatePanel::show_progress_view(const UpdatePackageItem &pkg) {
   close_modal();
 
+  // Full-screen modal overlay / backdrop
   modal_cont = lv_obj_create(cont);
   lv_obj_add_flag(modal_cont, LV_OBJ_FLAG_FLOATING);
-  lv_obj_set_size(modal_cont, LV_PCT(92), LV_PCT(88));
+  lv_obj_set_size(modal_cont, LV_PCT(100), LV_PCT(100));
   lv_obj_center(modal_cont);
   lv_obj_move_foreground(modal_cont);
-  lv_obj_set_style_bg_color(modal_cont, lv_palette_darken(LV_PALETTE_GREY, 4), 0);
-  lv_obj_set_style_bg_opa(modal_cont, LV_OPA_COVER, 0);
-  lv_obj_set_style_border_color(modal_cont, lv_palette_main(LV_PALETTE_BLUE), 0);
-  lv_obj_set_style_border_width(modal_cont, 2, 0);
-  lv_obj_set_style_radius(modal_cont, 12, 0);
-  lv_obj_set_style_pad_all(modal_cont, 16, 0);
+  lv_obj_set_style_bg_color(modal_cont, lv_color_black(), 0);
+  lv_obj_set_style_bg_opa(modal_cont, LV_OPA_70, 0);
+  lv_obj_set_style_border_width(modal_cont, 0, 0);
+  lv_obj_set_style_pad_all(modal_cont, 0, 0);
   lv_obj_clear_flag(modal_cont, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(modal_cont, LV_OBJ_FLAG_CLICKABLE);
 
-  lv_obj_t *title = lv_label_create(modal_cont);
+  // In FLASHING and SUCCESS states, clicking outside is completely ignored and NEVER closes the dialog.
+  // In FAILED state, clicking outside will dismiss the failure dialog.
+  lv_obj_add_event_cb(modal_cont, [](lv_event_t *e) {
+    auto *self = static_cast<UpdatePanel*>(e->user_data);
+    lv_obj_t *target = lv_event_get_target(e);
+    lv_obj_t *current_target = lv_event_get_current_target(e);
+    if (target == current_target) {
+      if (self->state == UpdateState::FAILED) {
+        self->state = UpdateState::IDLE;
+        self->close_modal();
+      }
+    }
+  }, LV_EVENT_CLICKED, this);
+
+  // Dialog card inside overlay
+  lv_obj_t *card = lv_obj_create(modal_cont);
+  lv_obj_set_size(card, LV_PCT(92), LV_PCT(88));
+  lv_obj_center(card);
+  lv_obj_set_style_bg_color(card, lv_palette_darken(LV_PALETTE_GREY, 4), 0);
+  lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_color(card, lv_palette_main(LV_PALETTE_BLUE), 0);
+  lv_obj_set_style_border_width(card, 2, 0);
+  lv_obj_set_style_radius(card, 12, 0);
+  lv_obj_set_style_pad_all(card, 16, 0);
+  lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+
+  lv_obj_t *title = lv_label_create(card);
   lv_label_set_text(title, pkg.is_remote ? "Downloading & Installing Update..." : "Flashing Firmware Update...");
   lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
   lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 0);
 
   // Progress bar
-  progress_bar = lv_bar_create(modal_cont);
+  progress_bar = lv_bar_create(card);
   lv_obj_set_size(progress_bar, LV_PCT(100), 24);
   lv_obj_align(progress_bar, LV_ALIGN_TOP_MID, 0, 40);
   lv_bar_set_range(progress_bar, 0, 100);
   lv_bar_set_value(progress_bar, 0, LV_ANIM_ON);
 
-  progress_label = lv_label_create(modal_cont);
+  progress_label = lv_label_create(card);
   lv_label_set_text(progress_label, "0%");
   lv_obj_set_style_text_font(progress_label, &lv_font_montserrat_14, 0);
   lv_obj_align(progress_label, LV_ALIGN_TOP_MID, 0, 70);
 
-  status_label = lv_label_create(modal_cont);
+  status_label = lv_label_create(card);
   lv_label_set_text(status_label, pkg.is_remote ? "Connecting to download server..." : "Initializing SWUpdate...");
   lv_obj_set_style_text_font(status_label, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(status_label, lv_palette_lighten(LV_PALETTE_GREY, 2), 0);
   lv_obj_align(status_label, LV_ALIGN_TOP_LEFT, 0, 95);
 
-  reboot_btn = lv_btn_create(modal_cont);
+  reboot_btn = lv_btn_create(card);
   lv_obj_set_size(reboot_btn, 160, 44);
   lv_obj_align(reboot_btn, LV_ALIGN_BOTTOM_MID, 0, 0);
   lv_obj_set_style_bg_color(reboot_btn, lv_palette_main(LV_PALETTE_GREEN), 0);
