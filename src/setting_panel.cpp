@@ -107,6 +107,13 @@ void SettingPanel::handle_callback(lv_event_t *event) {
       printer_profile_panel.foreground();
     } else if (btn == power_btn.get_container()) {
       spdlog::trace("setting power pressed");
+      if (KUtils::is_printing()) {
+        show_safety_alert(
+          "Printing in Progress",
+          "Cannot perform power or restart actions while a print is active or paused.\n\nPlease cancel or wait for the print to complete."
+        );
+        return;
+      }
       show_power_dialog();
     }
   }
@@ -231,21 +238,86 @@ void SettingPanel::show_power_dialog() {
   lv_obj_add_event_cb(klipper_btn, [](lv_event_t *e) {
     auto *self = static_cast<SettingPanel*>(e->user_data);
     lv_obj_del_async(lv_obj_get_parent(lv_obj_get_parent(lv_obj_get_parent(lv_event_get_current_target(e)))));
-    spdlog::info("Restarting Klipper from power dialog");
-    self->ws.send_jsonrpc("printer.restart");
+    if (KUtils::is_printing()) {
+      self->show_safety_alert(
+        "Cannot Restart Klipper",
+        "A print job is currently active or paused.\n\nPlease cancel or wait for the print to complete."
+      );
+      return;
+    }
+    auto s = State::get_instance();
+    auto etarget_j = s->get_data("/printer_state/extruder/target"_json_pointer);
+    auto btarget_j = s->get_data("/printer_state/heater_bed/target"_json_pointer);
+    double etarget = etarget_j.is_number() ? etarget_j.template get<double>() : 0.0;
+    double btarget = btarget_j.is_number() ? btarget_j.template get<double>() : 0.0;
+    if (etarget > 0.0 || btarget > 0.0) {
+      self->show_confirm(
+        "Heaters Still Active!",
+        "Restarting Klipper will shut down active heating.\n\nAre you sure you want to restart Klipper now?",
+        [self]() {
+          spdlog::info("Restarting Klipper from power dialog");
+          self->ws.send_jsonrpc("printer.restart");
+        }
+      );
+    } else {
+      self->show_confirm(
+        "Restart Klipper?",
+        "Restarts the Klipper host software service.\n\nAre you sure you want to restart Klipper?",
+        [self]() {
+          spdlog::info("Restarting Klipper from power dialog");
+          self->ws.send_jsonrpc("printer.restart");
+        }
+      );
+    }
   }, LV_EVENT_CLICKED, this);
 
   lv_obj_add_event_cb(mcu_btn, [](lv_event_t *e) {
     auto *self = static_cast<SettingPanel*>(e->user_data);
     lv_obj_del_async(lv_obj_get_parent(lv_obj_get_parent(lv_obj_get_parent(lv_event_get_current_target(e)))));
-    spdlog::info("Restarting Firmware from power dialog");
-    self->ws.send_jsonrpc("printer.firmware_restart");
+    if (KUtils::is_printing()) {
+      self->show_safety_alert(
+        "Cannot Restart Firmware",
+        "A print job is currently active or paused.\n\nPlease cancel or wait for the print to complete."
+      );
+      return;
+    }
+    auto s = State::get_instance();
+    auto etarget_j = s->get_data("/printer_state/extruder/target"_json_pointer);
+    auto btarget_j = s->get_data("/printer_state/heater_bed/target"_json_pointer);
+    double etarget = etarget_j.is_number() ? etarget_j.template get<double>() : 0.0;
+    double btarget = btarget_j.is_number() ? btarget_j.template get<double>() : 0.0;
+    if (etarget > 0.0 || btarget > 0.0) {
+      self->show_confirm(
+        "Heaters Still Active!",
+        "Resetting firmware will immediately shut down active heating.\n\nAre you sure you want to restart firmware now?",
+        [self]() {
+          spdlog::info("Restarting Firmware from power dialog");
+          self->ws.send_jsonrpc("printer.firmware_restart");
+        }
+      );
+    } else {
+      self->show_confirm(
+        "Restart Firmware?",
+        "Resets and reconnects all printer microcontrollers.\n\nAre you sure you want to restart firmware?",
+        [self]() {
+          spdlog::info("Restarting Firmware from power dialog");
+          self->ws.send_jsonrpc("printer.firmware_restart");
+        }
+      );
+    }
   }, LV_EVENT_CLICKED, this);
 
   lv_obj_add_event_cb(guppy_btn, [](lv_event_t *e) {
+    auto *self = static_cast<SettingPanel*>(e->user_data);
     lv_obj_del_async(lv_obj_get_parent(lv_obj_get_parent(lv_obj_get_parent(lv_event_get_current_target(e)))));
-    spdlog::info("Restarting GuppyScreen from power dialog");
-    KUtils::restart_guppyscreen();
+    self->show_confirm(
+      "Restart GuppyScreen?",
+      "Restarts the display user interface without touching Klipper.\n\nAre you sure you want to restart GuppyScreen?",
+      []() {
+        spdlog::info("Restarting GuppyScreen from power dialog");
+        KUtils::restart_guppyscreen();
+      }
+    );
   }, LV_EVENT_CLICKED, this);
 
   lv_obj_add_event_cb(reboot_btn, [](lv_event_t *e) {
@@ -343,6 +415,55 @@ void SettingPanel::request_reboot() {
     return;
   }
 
+  auto s = State::get_instance();
+  auto etarget_j = s->get_data("/printer_state/extruder/target"_json_pointer);
+  auto etemp_j   = s->get_data("/printer_state/extruder/temperature"_json_pointer);
+  auto btarget_j = s->get_data("/printer_state/heater_bed/target"_json_pointer);
+  auto btemp_j   = s->get_data("/printer_state/heater_bed/temperature"_json_pointer);
+
+  double etarget = etarget_j.is_number() ? etarget_j.template get<double>() : 0.0;
+  double etemp   = etemp_j.is_number()   ? etemp_j.template get<double>()   : 0.0;
+  double btarget = btarget_j.is_number() ? btarget_j.template get<double>() : 0.0;
+  double btemp   = btemp_j.is_number()   ? btemp_j.template get<double>()   : 0.0;
+
+  if (etarget > 0.0 || btarget > 0.0) {
+    std::string heater_info;
+    if (etarget > 0.0 && btarget > 0.0) {
+      heater_info = fmt::format("Extruder: {:.0f}/{:.0f}°C\nBed: {:.0f}/{:.0f}°C", etemp, etarget, btemp, btarget);
+    } else if (etarget > 0.0) {
+      heater_info = fmt::format("Extruder heating: {:.0f}/{:.0f}°C", etemp, etarget);
+    } else {
+      heater_info = fmt::format("Bed heating: {:.0f}/{:.0f}°C", btemp, btarget);
+    }
+    show_confirm(
+      "Heaters Still Active!",
+      fmt::format("{}\n\nRebooting while heaters are active may cause heat creep or nozzle clogging.\n\nAre you sure you want to reboot now?", heater_info).c_str(),
+      []() {
+        spdlog::info("Executing system reboot");
+        sync();
+        int rc = system("sync; reboot -f || /sbin/reboot -f || reboot || /sbin/reboot");
+        (void)rc;
+        reboot(RB_AUTOBOOT);
+      }
+    );
+    return;
+  }
+
+  if (etemp > 50.0) {
+    show_confirm(
+      "Hotend Still Hot!",
+      fmt::format("Extruder temperature is currently {:.0f}°C.\n\nRebooting stops the heatsink fan temporarily. Reboot anyway?", etemp).c_str(),
+      []() {
+        spdlog::info("Executing system reboot");
+        sync();
+        int rc = system("sync; reboot -f || /sbin/reboot -f || reboot || /sbin/reboot");
+        (void)rc;
+        reboot(RB_AUTOBOOT);
+      }
+    );
+    return;
+  }
+
   show_confirm(
     "Reboot System?",
     "Rebooting will restart all printer services and the Linux system.\n\nAre you sure you want to reboot now?",
@@ -359,8 +480,8 @@ void SettingPanel::request_reboot() {
 void SettingPanel::show_safety_alert(const char *title, const std::string &detail) {
   static const char *btns[] = {"OK", ""};
 
-  lv_obj_t *mbox = lv_msgbox_create(NULL, NULL,
-    fmt::format("{}\n\n{}", title, detail).c_str(), btns, false);
+  std::string msg_str = fmt::format("{}\n\n{}", title, detail);
+  lv_obj_t *mbox = lv_msgbox_create(NULL, NULL, msg_str.c_str(), btns, false);
   KUtils::style_dialog_msgbox(mbox);
 
   lv_obj_t *msg = ((lv_msgbox_t *)mbox)->text;
@@ -376,6 +497,7 @@ void SettingPanel::show_safety_alert(const char *title, const std::string &detai
   auto hscale = (double)lv_disp_get_physical_ver_res(NULL) / 480.0;
   lv_obj_set_size(btnm, LV_PCT(50), 50 * hscale);
   lv_obj_set_size(mbox, LV_PCT(80), LV_PCT(65));
+  lv_obj_center(mbox);
 
   lv_obj_add_event_cb(btnm, [](lv_event_t *e) {
     lv_msgbox_close(lv_obj_get_parent(lv_event_get_current_target(e)));
@@ -386,8 +508,8 @@ void SettingPanel::show_confirm(const char *title, const char *detail,
                                 const std::function<void()> &cb) {
   static const char *btns[] = {"Cancel", "Confirm", ""};
 
-  lv_obj_t *mbox = lv_msgbox_create(NULL, NULL,
-    fmt::format("{}\n\n{}", title, detail).c_str(), btns, false);
+  std::string msg_str = fmt::format("{}\n\n{}", title, detail);
+  lv_obj_t *mbox = lv_msgbox_create(NULL, NULL, msg_str.c_str(), btns, false);
   KUtils::style_dialog_msgbox(mbox);
 
   lv_obj_t *msg = ((lv_msgbox_t *)mbox)->text;
@@ -405,6 +527,7 @@ void SettingPanel::show_confirm(const char *title, const char *detail,
   auto hscale = (double)lv_disp_get_physical_ver_res(NULL) / 480.0;
   lv_obj_set_size(btnm, LV_PCT(90), 50 * hscale);
   lv_obj_set_size(mbox, LV_PCT(80), LV_PCT(65));
+  lv_obj_center(mbox);
 
   lv_obj_add_event_cb(btnm, [](lv_event_t *e) {
     lv_obj_draw_part_dsc_t *dsc = lv_event_get_draw_part_dsc(e);
