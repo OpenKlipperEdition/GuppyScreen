@@ -216,13 +216,6 @@ void SettingPanel::show_power_dialog() {
     LV_PALETTE_GREY
   );
 
-  // 5. Power Off Printer
-  lv_obj_t *poweroff_btn = make_opt_btn(
-    "Power Off Printer",
-    "Checks heater safety, syncs filesystems, and shuts down the CPU.",
-    LV_PALETTE_RED
-  );
-
   // Close button
   lv_obj_t *close_btn = lv_btn_create(box);
   lv_obj_set_size(close_btn, 140, 36);
@@ -325,85 +318,6 @@ void SettingPanel::show_power_dialog() {
     lv_obj_del_async(lv_obj_get_parent(lv_obj_get_parent(lv_obj_get_parent(lv_event_get_current_target(e)))));
     self->request_reboot();
   }, LV_EVENT_CLICKED, this);
-
-  lv_obj_add_event_cb(poweroff_btn, [](lv_event_t *e) {
-    auto *self = static_cast<SettingPanel*>(e->user_data);
-    lv_obj_del_async(lv_obj_get_parent(lv_obj_get_parent(lv_obj_get_parent(lv_event_get_current_target(e)))));
-    self->request_power_off();
-  }, LV_EVENT_CLICKED, this);
-}
-
-void SettingPanel::execute_power_off() {
-  spdlog::info("Executing system power off");
-  sync();
-  system("sync; poweroff -f || /sbin/poweroff -f || shutdown -h now || /sbin/shutdown -h now || poweroff");
-#ifdef __linux__
-  reboot(RB_POWER_OFF);
-#endif
-}
-
-void SettingPanel::request_power_off() {
-  // 1. Print state protection: Active print or paused job
-  if (KUtils::is_printing()) {
-    show_safety_alert(
-      "Cannot Power Off",
-      "A print job is currently active or paused.\n\nPlease cancel or wait for the print to complete before turning off the printer."
-    );
-    return;
-  }
-
-  // 2. Query thermal states
-  auto s = State::get_instance();
-  auto etarget_j = s->get_data("/printer_state/extruder/target"_json_pointer);
-  auto etemp_j   = s->get_data("/printer_state/extruder/temperature"_json_pointer);
-  auto btarget_j = s->get_data("/printer_state/heater_bed/target"_json_pointer);
-  auto btemp_j   = s->get_data("/printer_state/heater_bed/temperature"_json_pointer);
-
-  double etarget = etarget_j.is_number() ? etarget_j.template get<double>() : 0.0;
-  double etemp   = etemp_j.is_number()   ? etemp_j.template get<double>()   : 0.0;
-  double btarget = btarget_j.is_number() ? btarget_j.template get<double>() : 0.0;
-  double btemp   = btemp_j.is_number()   ? btemp_j.template get<double>()   : 0.0;
-
-  // Active heater targets protection
-  if (etarget > 0.0 || btarget > 0.0) {
-    std::string heater_info;
-    if (etarget > 0.0 && btarget > 0.0) {
-      heater_info = fmt::format("Extruder: {:.0f}/{:.0f}°C\nBed: {:.0f}/{:.0f}°C", etemp, etarget, btemp, btarget);
-    } else if (etarget > 0.0) {
-      heater_info = fmt::format("Extruder heating: {:.0f}/{:.0f}°C", etemp, etarget);
-    } else {
-      heater_info = fmt::format("Bed heating: {:.0f}/{:.0f}°C", btemp, btarget);
-    }
-    show_confirm(
-      "Heaters Still Active!",
-      fmt::format("{}\n\nTurning off power while heaters are active may cause heat creep or nozzle clogging.\n\nAre you sure you want to shut down now?", heater_info).c_str(),
-      [this]() {
-        execute_power_off();
-      }
-    );
-    return;
-  }
-
-  // High residual nozzle temperature protection (Hotend > 50°C without cooling fan)
-  if (etemp > 50.0) {
-    show_confirm(
-      "Hotend Still Hot!",
-      fmt::format("Extruder temperature is currently {:.0f}°C.\n\nPowering off now stops the heatsink fan, which can cause heat creep and filament clog.\n\nWait for cooling is recommended. Shut down anyway?", etemp).c_str(),
-      [this]() {
-        execute_power_off();
-      }
-    );
-    return;
-  }
-
-  // 4. Safe idle state confirmation
-  show_confirm(
-    "Power Off Printer?",
-    "Safely syncs filesystems and powers off the CPU.\n\nAre you sure you want to turn off the printer?",
-    [this]() {
-      execute_power_off();
-    }
-  );
 }
 
 void SettingPanel::request_reboot() {
@@ -435,9 +349,10 @@ void SettingPanel::request_reboot() {
     } else {
       heater_info = fmt::format("Bed heating: {:.0f}/{:.0f}°C", btemp, btarget);
     }
+    std::string prompt = fmt::format("{}\n\nRebooting while heaters are active may cause heat creep or nozzle clogging.\n\nAre you sure you want to reboot now?", heater_info);
     show_confirm(
       "Heaters Still Active!",
-      fmt::format("{}\n\nRebooting while heaters are active may cause heat creep or nozzle clogging.\n\nAre you sure you want to reboot now?", heater_info).c_str(),
+      prompt.c_str(),
       []() {
         spdlog::info("Executing system reboot");
         sync();
@@ -450,9 +365,10 @@ void SettingPanel::request_reboot() {
   }
 
   if (etemp > 50.0) {
+    std::string hotend_prompt = fmt::format("Extruder temperature is currently {:.0f}°C.\n\nRebooting stops the heatsink fan temporarily. Reboot anyway?", etemp);
     show_confirm(
       "Hotend Still Hot!",
-      fmt::format("Extruder temperature is currently {:.0f}°C.\n\nRebooting stops the heatsink fan temporarily. Reboot anyway?", etemp).c_str(),
+      hotend_prompt.c_str(),
       []() {
         spdlog::info("Executing system reboot");
         sync();

@@ -33,8 +33,6 @@ class SettingPanel {
 
   void handle_callback(lv_event_t *event);
   void show_power_dialog();
-  void request_power_off();
-  void execute_power_off();
   void request_reboot();
   void show_confirm(const char *title, const char *detail, const std::function<void()> &cb);
   void show_safety_alert(const char *title, const std::string &detail);
