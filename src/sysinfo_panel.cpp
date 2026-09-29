@@ -122,7 +122,6 @@ SysInfoPanel::SysInfoPanel()
   , touch_beep_toggle(lv_switch_create(touch_beep_cont))
 
   , reset_options_btn(cont, &cancel, "Reset\nOptions", &SysInfoPanel::_handle_callback, this)
-  , power_off_btn(cont, &emergency, "Power\nOff", &SysInfoPanel::_handle_callback, this)
   , back_btn(cont, &back, "Back", &SysInfoPanel::_handle_callback, this)
 {
   lv_obj_move_background(cont);
@@ -389,12 +388,9 @@ SysInfoPanel::SysInfoPanel()
   lv_obj_add_event_cb(touch_beep_toggle, &SysInfoPanel::_handle_callback,
     LV_EVENT_VALUE_CHANGED, this);
 
-  // Reset Options lives in the top-right corner, Power Off in the middle-right, and Back in the bottom-right.
+  // Reset Options lives in the top-right corner and Back in the bottom-right.
   lv_obj_add_flag(reset_options_btn.get_container(), LV_OBJ_FLAG_FLOATING);
   lv_obj_align(reset_options_btn.get_container(), LV_ALIGN_TOP_RIGHT, 0, 0);
-
-  lv_obj_add_flag(power_off_btn.get_container(), LV_OBJ_FLAG_FLOATING);
-  lv_obj_align(power_off_btn.get_container(), LV_ALIGN_RIGHT_MID, 0, 0);
 
   lv_obj_add_flag(back_btn.get_container(), LV_OBJ_FLAG_FLOATING);
   lv_obj_align(back_btn.get_container(), LV_ALIGN_BOTTOM_RIGHT, 0, 0);
@@ -412,12 +408,11 @@ SysInfoPanel::SysInfoPanel()
   // The Theme/Def-Temp rows now share the right column with the network text.
   // A long network list (e.g. many interfaces) can push these rows down into
   // the buttons' band, so reserve clearance for the WIDER of the
-  // floating side buttons (Reset Options top-right, Power Off right-mid, Back bottom-right) plus a
+  // floating side buttons (Reset Options top-right, Back bottom-right) plus a
   // comfortable margin, otherwise a right-aligned dropdown tucks under a button.
-  lv_coord_t corner_btn_w = std::max({
+  lv_coord_t corner_btn_w = std::max(
       lv_obj_get_width(reset_options_btn.get_container()),
-      lv_obj_get_width(power_off_btn.get_container()),
-      lv_obj_get_width(back_btn.get_container())});
+      lv_obj_get_width(back_btn.get_container()));
   lv_coord_t right_row_w = lv_obj_get_width(right_cont) - corner_btn_w - 12;
   lv_obj_set_width(theme_cont, right_row_w);
   lv_obj_set_width(def_temp_cont, right_row_w);
@@ -455,8 +450,6 @@ void SysInfoPanel::handle_callback(lv_event_t *e)
       lv_obj_move_background(cont);
     } else if (btn == reset_options_btn.get_container()) {
       show_reset_options();
-    } else if (btn == power_off_btn.get_container()) {
-      request_power_off();
     }
   } else if (lv_event_get_code(e) == LV_EVENT_VALUE_CHANGED) {
     lv_obj_t *obj = lv_event_get_target(e);

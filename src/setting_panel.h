@@ -17,6 +17,8 @@
 #include "lvgl/lvgl.h"
 
 #include <mutex>
+#include <functional>
+#include <string>
 
 class SettingPanel {
  public:
@@ -30,6 +32,12 @@ class SettingPanel {
   UpdatePanel &get_update_panel() { return update_panel; }
 
   void handle_callback(lv_event_t *event);
+  void show_power_dialog();
+  void request_power_off();
+  void execute_power_off();
+  void request_reboot();
+  void show_confirm(const char *title, const char *detail, const std::function<void()> &cb);
+  void show_safety_alert(const char *title, const std::string &detail);
 
   static void _handle_callback(lv_event_t *event) {
     SettingPanel *panel = (SettingPanel*)event->user_data;
@@ -50,14 +58,11 @@ class SettingPanel {
   PrinterProfilePanel printer_profile_panel;
   UpdatePanel update_panel;
   ButtonContainer wifi_btn;
-  ButtonContainer restart_klipper_btn;
-  ButtonContainer restart_firmware_btn;
-  ButtonContainer sysinfo_btn;
-  ButtonContainer spoolman_btn;
-  ButtonContainer guppy_restart_btn;
-  ButtonContainer guppy_update_btn;
   ButtonContainer printer_profile_btn;
-  
+  ButtonContainer spoolman_btn;
+  ButtonContainer guppy_update_btn;
+  ButtonContainer sysinfo_btn;
+  ButtonContainer power_btn;
 };
 
 #endif // __SETTING_PANEL_H__
