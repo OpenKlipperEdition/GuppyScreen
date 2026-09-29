@@ -619,11 +619,6 @@ void SysInfoPanel::show_reset_options() {
     "Clears saved calibration coefficients.\nGuppyScreen restarts and asks you to recalibrate."
   );
 
-  lv_obj_t *btn_pwr = make_opt_btn(
-    "Power Off Printer",
-    "Safely syncs filesystem and powers off CPU."
-  );
-
   lv_obj_t *close_btn = lv_btn_create(box);
   lv_obj_set_size(close_btn, LV_PCT(50), LV_SIZE_CONTENT);
   lv_obj_set_style_bg_color(close_btn, lv_palette_darken(LV_PALETTE_GREY, 1), 0);
@@ -678,11 +673,6 @@ void SysInfoPanel::show_reset_options() {
         _exit(0);
       }
     );
-  }, LV_EVENT_CLICKED, this);
-
-  lv_obj_add_event_cb(btn_pwr, [](lv_event_t *e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    ((SysInfoPanel *)e->user_data)->request_power_off();
   }, LV_EVENT_CLICKED, this);
 }
 
@@ -763,77 +753,4 @@ void SysInfoPanel::show_safety_alert(const char *title, const std::string &detai
   lv_obj_center(mbox);
 }
 
-void SysInfoPanel::execute_power_off() {
-  spdlog::info("Executing system power off");
-  sync();
-  system("sync; poweroff -f || /sbin/poweroff -f || shutdown -h now || /sbin/shutdown -h now || poweroff");
-#ifdef __linux__
-  reboot(RB_POWER_OFF);
-#endif
-}
 
-void SysInfoPanel::request_power_off() {
-  // 1. Print state protection: Active print or paused job
-  if (KUtils::is_printing()) {
-    show_safety_alert(
-      "Cannot Power Off",
-      "A print job is currently active or paused.\n\nPlease cancel or wait for the print to complete before turning off the printer."
-    );
-    return;
-  }
-
-  // 2. Query thermal states
-  auto s = State::get_instance();
-  auto etarget_j = s->get_data("/printer_state/extruder/target"_json_pointer);
-  auto etemp_j   = s->get_data("/printer_state/extruder/temperature"_json_pointer);
-  auto btarget_j = s->get_data("/printer_state/heater_bed/target"_json_pointer);
-  auto btemp_j   = s->get_data("/printer_state/heater_bed/temperature"_json_pointer);
-
-  double etarget = etarget_j.is_number() ? etarget_j.template get<double>() : 0.0;
-  double etemp   = etemp_j.is_number()   ? etemp_j.template get<double>()   : 0.0;
-  double btarget = btarget_j.is_number() ? btarget_j.template get<double>() : 0.0;
-  double btemp   = btemp_j.is_number()   ? btemp_j.template get<double>()   : 0.0;
-
-  // Active heater targets protection
-  if (etarget > 0.0 || btarget > 0.0) {
-    std::string heater_info;
-    if (etarget > 0.0 && btarget > 0.0) {
-      heater_info = fmt::format("Extruder: {:.0f}/{:.0f}°C\nBed: {:.0f}/{:.0f}°C", etemp, etarget, btemp, btarget);
-    } else if (etarget > 0.0) {
-      heater_info = fmt::format("Extruder heating: {:.0f}/{:.0f}°C", etemp, etarget);
-    } else {
-      heater_info = fmt::format("Bed heating: {:.0f}/{:.0f}°C", btemp, btarget);
-    }
-    show_safety_alert(
-      "Heaters Are Active",
-      fmt::format("{}\n\nPlease turn off all heaters and allow them to cool down before powering off.", heater_info)
-    );
-    return;
-  }
-
-  // 3. Hotend residual temperature protection (heat creep / clog risk)
-  if (etemp >= 50.0) {
-    show_reset_confirm(
-      "Hotend Still Hot!",
-      fmt::format(
-        "Extruder temperature is {:.0f}°C (cooldown target: <50°C).\n\n"
-        "Powering off now stops the heatsink fan and may cause heat creep or nozzle clogs.\n\n"
-        "Are you sure you want to power off anyway?",
-        etemp
-      ).c_str(),
-      [this]() {
-        execute_power_off();
-      }
-    );
-    return;
-  }
-
-  // 4. Safe idle state confirmation
-  show_reset_confirm(
-    "Power Off Printer?",
-    "Safely syncs filesystems and powers off the CPU.\n\nAre you sure you want to turn off the printer?",
-    [this]() {
-      execute_power_off();
-    }
-  );
-}
