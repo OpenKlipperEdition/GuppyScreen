@@ -1,5 +1,6 @@
 #include "appstore_panel.h"
 #include "utils.h"
+#include "state.h"
 #include "spdlog/spdlog.h"
 #include "subprocess.hpp"
 
@@ -544,6 +545,40 @@ void AppStorePanel::show_install_confirm(const AppItem &app) {
 
 void AppStorePanel::show_activate_confirm(const AppItem &app) {
   if (is_busy.load()) return;
+
+  // 1. Printing safeguard (Web UI and Touch UI)
+  if (KUtils::is_printing()) {
+    show_alert("Cannot Switch Interface",
+               "#FF5252 Print In Progress#\n\nA 3D print job is currently active or paused.\n\nPlease finish or cancel the print before switching interfaces.");
+    return;
+  }
+
+  // 2. Thermal & Heater safeguard (Touch UI reload protection)
+  auto s = State::get_instance();
+  auto etarget_j = s->get_data("/printer_state/extruder/target"_json_pointer);
+  auto etemp_j   = s->get_data("/printer_state/extruder/temperature"_json_pointer);
+  auto btarget_j = s->get_data("/printer_state/heater_bed/target"_json_pointer);
+  auto btemp_j   = s->get_data("/printer_state/heater_bed/temperature"_json_pointer);
+
+  double etarget = etarget_j.is_number() ? etarget_j.get<double>() : 0.0;
+  double etemp   = etemp_j.is_number()   ? etemp_j.get<double>()   : 0.0;
+  double btarget = btarget_j.is_number() ? btarget_j.get<double>() : 0.0;
+  double btemp   = btemp_j.is_number()   ? btemp_j.get<double>()   : 0.0;
+
+  if (app.category == "touch_ui" && (etarget > 0.0 || btarget > 0.0)) {
+    std::string h_info;
+    if (etarget > 0.0 && btarget > 0.0) {
+      h_info = fmt::format("Hotend: {:.0f}/{:.0f}°C\nBed: {:.0f}/{:.0f}°C", etemp, etarget, btemp, btarget);
+    } else if (etarget > 0.0) {
+      h_info = fmt::format("Hotend heating: {:.0f}/{:.0f}°C", etemp, etarget);
+    } else {
+      h_info = fmt::format("Bed heating: {:.0f}/{:.0f}°C", btemp, btarget);
+    }
+    show_alert("Heaters Currently Active",
+               fmt::format("{}\n\n#FFA726 Thermal Safety:# Switching Touchscreen UI reloads the display service.\n\nPlease turn off heaters before switching.", h_info));
+    return;
+  }
+
   pending_app = app;
 
   static const char *btns[] = {"Cancel", "Activate", ""};
@@ -589,6 +624,13 @@ void AppStorePanel::show_activate_confirm(const AppItem &app) {
 
 void AppStorePanel::show_remove_confirm(const AppItem &app) {
   if (is_busy.load()) return;
+
+  if (app.is_active && KUtils::is_printing()) {
+    show_alert("Cannot Remove Active UI",
+               "#FF5252 Print In Progress#\n\nA 3D print job is currently active.\n\nPlease finish or cancel the print before removing the active interface.");
+    return;
+  }
+
   pending_app = app;
 
   static const char *btns[] = {"Cancel", "Remove", ""};
@@ -743,6 +785,24 @@ void AppStorePanel::execute_install(const AppItem &app, bool activate) {
 void AppStorePanel::execute_activate(const AppItem &app) {
   if (is_busy.load()) return;
 
+  if (KUtils::is_printing()) {
+    show_alert("Cannot Switch Interface",
+               "#FF5252 Print In Progress#\n\nA 3D print job is currently active or paused.\n\nPlease finish or cancel the print before switching interfaces.");
+    return;
+  }
+
+  auto s = State::get_instance();
+  auto etarget_j = s->get_data("/printer_state/extruder/target"_json_pointer);
+  auto btarget_j = s->get_data("/printer_state/heater_bed/target"_json_pointer);
+  double etarget = etarget_j.is_number() ? etarget_j.get<double>() : 0.0;
+  double btarget = btarget_j.is_number() ? btarget_j.get<double>() : 0.0;
+
+  if (app.category == "touch_ui" && (etarget > 0.0 || btarget > 0.0)) {
+    show_alert("Heaters Active",
+               "#FFA726 Thermal Safety:# Cannot switch Touchscreen UI while heaters are active.\n\nPlease turn off heaters first.");
+    return;
+  }
+
   std::string cmd;
   if (app.category == "web_ui") {
     cmd = fmt::format("/usr/bin/openke-app set-active-web {}", app.id);
@@ -754,7 +814,7 @@ void AppStorePanel::execute_activate(const AppItem &app) {
 
   int rc = sp::call(cmd);
   if (rc != 0) {
-    show_alert("Action Failed", fmt::format("#FF5252 Failed to activate {}#\n\nEnsure no print job is running or paused.", app.name));
+    show_alert("Action Failed", fmt::format("#FF5252 Failed to activate {}#\n\nEnsure no print job is running or heaters active.", app.name));
     return;
   }
 
