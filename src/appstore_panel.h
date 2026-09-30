@@ -38,6 +38,7 @@ class AppStorePanel {
 
   void refresh_apps();
   void filter_category(const std::string &category);
+  void execute_refresh();
   void execute_install(const AppItem &app, bool activate = false);
   void execute_activate(const AppItem &app);
   void execute_remove(const AppItem &app);

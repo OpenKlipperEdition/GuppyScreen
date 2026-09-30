@@ -113,8 +113,7 @@ void AppStorePanel::handle_callback(lv_event_t *event) {
     if (target == back_btn.get_container()) {
       background();
     } else if (target == refresh_btn.get_container()) {
-      refresh_apps();
-      build_app_list();
+      execute_refresh();
     }
   }
 }
@@ -616,6 +615,30 @@ void AppStorePanel::show_alert(const std::string &title, const std::string &msg)
   }, LV_EVENT_VALUE_CHANGED, NULL);
 
   lv_obj_center(mbox);
+}
+
+void AppStorePanel::execute_refresh() {
+  if (is_busy.load()) return;
+  is_busy.store(true);
+  task_finished.store(false);
+
+  show_progress_modal("Updating", "Refreshing App Store catalog...\nPlease wait.");
+
+  if (worker_thread.joinable()) {
+    worker_thread.join();
+  }
+
+  worker_thread = std::thread([this]() {
+    try {
+      auto p = sp::Popen({"/usr/bin/openke-app", "update"}, sp::output{sp::PIPE}, sp::error{sp::PIPE});
+      p.communicate();
+      task_exit_code.store(0);
+    } catch (const std::exception &e) {
+      spdlog::warn("AppStore: update execution failed: {}", e.what());
+      task_exit_code.store(0);
+    }
+    task_finished.store(true);
+  });
 }
 
 void AppStorePanel::execute_install(const AppItem &app, bool activate) {
