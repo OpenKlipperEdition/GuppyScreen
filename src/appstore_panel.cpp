@@ -183,8 +183,12 @@ void AppStorePanel::refresh_apps() {
   try {
     auto p = sp::Popen({"/usr/bin/openke-app", "list", "--json"}, sp::output{sp::PIPE}, sp::error{sp::PIPE});
     auto res = p.communicate();
-    if (p.retcode() == 0 && !res.first.empty()) {
-      json j = json::parse(res.first);
+    std::string out_str;
+    if (res.first.length > 0 && res.first.buf.data() != nullptr) {
+      out_str = std::string(res.first.buf.data(), res.first.length);
+    }
+    if (p.retcode() == 0 && !out_str.empty()) {
+      json j = json::parse(out_str);
       if (j.is_array()) {
         for (const auto &item : j) {
           AppItem app;
@@ -635,7 +639,13 @@ void AppStorePanel::execute_install(const AppItem &app, bool activate) {
       auto res = p.communicate();
       task_exit_code.store(p.retcode());
       if (p.retcode() != 0) {
-        task_error_msg = res.second.empty() ? res.first : res.second;
+        std::string err_str;
+        if (res.second.length > 0 && res.second.buf.data() != nullptr) {
+          err_str = std::string(res.second.buf.data(), res.second.length);
+        } else if (res.first.length > 0 && res.first.buf.data() != nullptr) {
+          err_str = std::string(res.first.buf.data(), res.first.length);
+        }
+        task_error_msg = err_str;
       }
     } catch (const std::exception &e) {
       task_exit_code.store(1);
@@ -684,7 +694,13 @@ void AppStorePanel::execute_remove(const AppItem &app) {
       auto res = p.communicate();
       task_exit_code.store(p.retcode());
       if (p.retcode() != 0) {
-        task_error_msg = res.second.empty() ? res.first : res.second;
+        std::string err_str;
+        if (res.second.length > 0 && res.second.buf.data() != nullptr) {
+          err_str = std::string(res.second.buf.data(), res.second.length);
+        } else if (res.first.length > 0 && res.first.buf.data() != nullptr) {
+          err_str = std::string(res.first.buf.data(), res.first.length);
+        }
+        task_error_msg = err_str;
       }
     } catch (const std::exception &e) {
       task_exit_code.store(1);
