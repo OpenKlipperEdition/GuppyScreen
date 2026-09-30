@@ -254,6 +254,8 @@ void AppStorePanel::refresh_apps() {
           app.is_builtin = item.value("is_builtin", false);
           app.is_installed = item.value("is_installed", false);
           app.is_active = item.value("is_active", false);
+          app.installed_version = item.value("installed_version", "");
+          app.has_update = item.value("has_update", false);
           app.status = item.value("status", "available");
           apps.push_back(app);
         }
@@ -281,11 +283,13 @@ void AppStorePanel::refresh_apps() {
               app.category = item.value("category", "");
               app.icon = item.value("icon", "");
               app.version = item.value("version", "");
+              app.installed_version = item.value("installed_version", "");
               app.author = item.value("author", "");
               app.description = item.value("description", "");
               app.is_builtin = item.value("is_builtin", false);
               app.is_installed = app.is_builtin;
               app.is_active = (app.id == "mainsail" || app.id == "guppyscreen");
+              app.has_update = false;
               app.status = app.is_active ? "active" : (app.is_installed ? "installed" : "available");
               apps.push_back(app);
             }
@@ -298,8 +302,9 @@ void AppStorePanel::refresh_apps() {
     }
   }
 
-  // Sort: Active first, then installed, then alphabetical
+  // Sort: Updates first, then active, then installed, then alphabetical
   std::sort(apps.begin(), apps.end(), [](const AppItem &a, const AppItem &b) {
+    if (a.has_update != b.has_update) return a.has_update > b.has_update;
     if (a.is_active != b.is_active) return a.is_active > b.is_active;
     if (a.is_installed != b.is_installed) return a.is_installed > b.is_installed;
     return a.name < b.name;
@@ -334,7 +339,11 @@ void AppStorePanel::build_app_list() {
     lv_obj_set_flex_align(card, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
 
-    if (app.is_active) {
+    if (app.has_update) {
+      lv_obj_set_style_border_color(card, lv_palette_main(LV_PALETTE_ORANGE), 0);
+      lv_obj_set_style_border_width(card, 2, 0);
+      lv_obj_set_style_bg_color(card, lv_palette_darken(LV_PALETTE_GREY, 4), 0);
+    } else if (app.is_active) {
       lv_obj_set_style_border_color(card, lv_palette_main(LV_PALETTE_GREEN), 0);
       lv_obj_set_style_border_width(card, 2, 0);
       lv_obj_set_style_bg_color(card, lv_palette_darken(LV_PALETTE_GREY, 4), 0);
@@ -386,14 +395,22 @@ void AppStorePanel::build_app_list() {
     lv_obj_t *name_lbl = lv_label_create(text_cont);
     lv_label_set_text(name_lbl, app.name.c_str());
     lv_obj_set_style_text_font(name_lbl, &lv_font_montserrat_16, 0);
-    if (app.is_active) {
+    if (app.has_update) {
+      lv_obj_set_style_text_color(name_lbl, lv_palette_lighten(LV_PALETTE_ORANGE, 1), 0);
+    } else if (app.is_active) {
       lv_obj_set_style_text_color(name_lbl, lv_palette_lighten(LV_PALETTE_GREEN, 1), 0);
     }
 
-    // Subtitle (category, version, author)
-    std::string meta = fmt::format("{} • v{} • {}", app.category, app.version, app.author);
+    // Subtitle (category, version, update status, author)
+    std::string meta;
+    if (app.has_update) {
+      meta = fmt::format("{} • #FFA726 Update Available: v{} (installed: v{})# • {}", app.category, app.version, app.installed_version.empty() ? "?" : app.installed_version, app.author);
+    } else {
+      meta = fmt::format("{} • v{} • {}", app.category, app.version, app.author);
+    }
     lv_obj_t *meta_lbl = lv_label_create(text_cont);
     lv_label_set_text(meta_lbl, meta.c_str());
+    lv_label_set_recolor(meta_lbl, true);
     lv_obj_set_style_text_font(meta_lbl, &lv_font_montserrat_12, 0);
     lv_obj_set_style_text_color(meta_lbl, lv_palette_lighten(LV_PALETTE_GREY, 1), 0);
 
@@ -415,6 +432,15 @@ void AppStorePanel::build_app_list() {
     lv_obj_set_style_border_width(action_cont, 0, 0);
     lv_obj_clear_flag(action_cont, LV_OBJ_FLAG_SCROLLABLE);
 
+    auto upd_handler = [](lv_event_t *e) {
+      if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+      auto *panel = static_cast<AppStorePanel*>(e->user_data);
+      size_t i = (size_t)(uintptr_t)lv_obj_get_user_data(lv_event_get_current_target(e));
+      if (i < panel->apps.size()) {
+        panel->show_update_confirm(panel->apps[i]);
+      }
+    };
+
     if (app.is_active) {
       lv_obj_t *badge = lv_btn_create(action_cont);
       lv_obj_set_size(badge, LV_SIZE_CONTENT, 30);
@@ -427,7 +453,39 @@ void AppStorePanel::build_app_list() {
       lv_obj_set_style_text_font(b_lbl, &lv_font_montserrat_12, 0);
       lv_obj_set_style_text_color(b_lbl, lv_color_white(), 0);
       lv_obj_center(b_lbl);
+
+      if (app.has_update) {
+        lv_obj_t *upd_btn = lv_btn_create(action_cont);
+        lv_obj_set_size(upd_btn, LV_SIZE_CONTENT, 30);
+        lv_obj_set_style_radius(upd_btn, 15, 0);
+        lv_obj_set_style_bg_color(upd_btn, lv_palette_main(LV_PALETTE_ORANGE), 0);
+
+        lv_obj_t *upd_lbl = lv_label_create(upd_btn);
+        lv_label_set_text(upd_lbl, "Update");
+        lv_obj_set_style_text_font(upd_lbl, &lv_font_montserrat_12, 0);
+        lv_obj_set_style_text_color(upd_lbl, lv_color_white(), 0);
+        lv_obj_center(upd_lbl);
+
+        lv_obj_set_user_data(upd_btn, (void*)(uintptr_t)idx);
+        lv_obj_add_event_cb(upd_btn, upd_handler, LV_EVENT_CLICKED, this);
+      }
     } else if (app.is_installed) {
+      if (app.has_update) {
+        lv_obj_t *upd_btn = lv_btn_create(action_cont);
+        lv_obj_set_size(upd_btn, LV_SIZE_CONTENT, 30);
+        lv_obj_set_style_radius(upd_btn, 15, 0);
+        lv_obj_set_style_bg_color(upd_btn, lv_palette_main(LV_PALETTE_ORANGE), 0);
+
+        lv_obj_t *upd_lbl = lv_label_create(upd_btn);
+        lv_label_set_text(upd_lbl, "Update");
+        lv_obj_set_style_text_font(upd_lbl, &lv_font_montserrat_12, 0);
+        lv_obj_set_style_text_color(upd_lbl, lv_color_white(), 0);
+        lv_obj_center(upd_lbl);
+
+        lv_obj_set_user_data(upd_btn, (void*)(uintptr_t)idx);
+        lv_obj_add_event_cb(upd_btn, upd_handler, LV_EVENT_CLICKED, this);
+      }
+
       if (app.category == "web_ui" || app.category == "touch_ui") {
         lv_obj_t *act_btn = lv_btn_create(action_cont);
         lv_obj_set_size(act_btn, LV_SIZE_CONTENT, 30);
@@ -536,6 +594,45 @@ void AppStorePanel::show_install_confirm(const AppItem &app) {
     lv_obj_t *obj = lv_obj_get_parent(lv_event_get_target(e));
     if (lv_msgbox_get_active_btn(obj) == 1) {
       panel->execute_install(panel->pending_app);
+    }
+    lv_msgbox_close(obj);
+  }, LV_EVENT_VALUE_CHANGED, this);
+
+  lv_obj_center(mbox);
+}
+
+void AppStorePanel::show_update_confirm(const AppItem &app) {
+  if (is_busy.load()) return;
+  pending_app = app;
+
+  static const char *btns[] = {"Cancel", "Update", ""};
+  std::string msg = fmt::format("Update\n#FFA726 {}#\nfrom #BDBDBD v{}# -> #4CAF50 v{}# ?\n\n{}",
+                                app.name, app.installed_version.empty() ? "?" : app.installed_version, app.version, app.description);
+
+  lv_obj_t *mbox = lv_msgbox_create(NULL, NULL, msg.c_str(), btns, false);
+  KUtils::style_dialog_msgbox(mbox);
+
+  lv_obj_t *msg_obj = ((lv_msgbox_t *)mbox)->text;
+  lv_obj_set_style_text_align(msg_obj, LV_TEXT_ALIGN_CENTER, 0);
+  lv_label_set_recolor(msg_obj, true);
+  lv_obj_set_width(msg_obj, LV_PCT(100));
+  lv_obj_center(msg_obj);
+
+  lv_obj_t *btnm = lv_msgbox_get_btns(mbox);
+  lv_btnmatrix_set_btn_ctrl(btnm, 0, LV_BTNMATRIX_CTRL_CHECKED);
+  lv_btnmatrix_set_btn_ctrl(btnm, 1, LV_BTNMATRIX_CTRL_CHECKED);
+  lv_obj_add_flag(btnm, LV_OBJ_FLAG_FLOATING);
+  lv_obj_align(btnm, LV_ALIGN_BOTTOM_MID, 0, 0);
+
+  auto hscale = (double)lv_disp_get_physical_ver_res(NULL) / 480.0;
+  lv_obj_set_size(btnm, LV_PCT(90), 50 * hscale);
+  lv_obj_set_size(mbox, LV_PCT(85), LV_PCT(65));
+
+  lv_obj_add_event_cb(mbox, [](lv_event_t *e) {
+    auto *panel = static_cast<AppStorePanel*>(e->user_data);
+    lv_obj_t *obj = lv_obj_get_parent(lv_event_get_target(e));
+    if (lv_msgbox_get_active_btn(obj) == 1) {
+      panel->execute_update(panel->pending_app);
     }
     lv_msgbox_close(obj);
   }, LV_EVENT_VALUE_CHANGED, this);
@@ -758,6 +855,45 @@ void AppStorePanel::execute_install(const AppItem &app, bool activate) {
     std::string app_id = app.id;
     std::vector<std::string> args = {"/usr/bin/openke-app", "install", app_id};
     if (activate) {
+      args.push_back("--activate");
+    }
+
+    try {
+      auto p = sp::Popen(args, sp::output{sp::PIPE}, sp::error{sp::PIPE});
+      auto res = p.communicate();
+      task_exit_code.store(p.retcode());
+      if (p.retcode() != 0) {
+        std::string err_str;
+        if (res.second.length > 0 && res.second.buf.data() != nullptr) {
+          err_str = std::string(res.second.buf.data(), res.second.length);
+        } else if (res.first.length > 0 && res.first.buf.data() != nullptr) {
+          err_str = std::string(res.first.buf.data(), res.first.length);
+        }
+        task_error_msg = err_str;
+      }
+    } catch (const std::exception &e) {
+      task_exit_code.store(1);
+      task_error_msg = e.what();
+    }
+    task_finished.store(true);
+  });
+}
+
+void AppStorePanel::execute_update(const AppItem &app) {
+  if (is_busy.load()) return;
+  is_busy.store(true);
+  task_finished.store(false);
+
+  show_progress_modal("Updating", fmt::format("Updating #FFA726 {}# ...\nPlease wait.", app.name));
+
+  if (worker_thread.joinable()) {
+    worker_thread.join();
+  }
+
+  worker_thread = std::thread([this, app]() {
+    std::string app_id = app.id;
+    std::vector<std::string> args = {"/usr/bin/openke-app", "install", app_id};
+    if (app.is_active) {
       args.push_back("--activate");
     }
 

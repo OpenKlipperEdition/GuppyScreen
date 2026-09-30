@@ -21,11 +21,13 @@ struct AppItem {
   std::string category;
   std::string icon;
   std::string version;
+  std::string installed_version;
   std::string author;
   std::string description;
   bool is_builtin{false};
   bool is_installed{false};
   bool is_active{false};
+  bool has_update{false};
   std::string status; // "active", "installed", "available"
 };
 
@@ -41,6 +43,7 @@ class AppStorePanel {
   void filter_category(const std::string &category);
   void execute_refresh();
   void execute_install(const AppItem &app, bool activate = false);
+  void execute_update(const AppItem &app);
   void execute_activate(const AppItem &app);
   void execute_remove(const AppItem &app);
 
@@ -59,6 +62,7 @@ class AppStorePanel {
   void build_category_bar();
   void build_app_list();
   void show_install_confirm(const AppItem &app);
+  void show_update_confirm(const AppItem &app);
   void show_activate_confirm(const AppItem &app);
   void show_remove_confirm(const AppItem &app);
   void show_progress_modal(const std::string &title, const std::string &msg);
