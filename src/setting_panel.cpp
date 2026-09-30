@@ -24,6 +24,7 @@ LV_IMG_DECLARE(info_img);
 LV_IMG_DECLARE(sysinfo_img);
 #endif
 
+LV_IMG_DECLARE(layers_img);
 LV_IMG_DECLARE(print);
 
 SettingPanel::SettingPanel(KWebSocketClient &c, std::mutex &l, lv_obj_t *parent, SpoolmanPanel &sm)
@@ -35,9 +36,11 @@ SettingPanel::SettingPanel(KWebSocketClient &c, std::mutex &l, lv_obj_t *parent,
   , sysinfo_panel()
   , spoolman_panel(sm)
   , printer_profile_panel(c)
+  , appstore_panel(c)
   , update_panel(c)
   , wifi_btn(cont, &network_img, "WIFI", &SettingPanel::_handle_callback, this)
   , printer_profile_btn(cont, &print, "Printer\nModel", &SettingPanel::_handle_callback, this)
+  , appstore_btn(cont, &layers_img, "App\nStore", &SettingPanel::_handle_callback, this)
   , spoolman_btn(cont, &spoolman_img, "Spoolman", &SettingPanel::_handle_callback, this)
   , guppy_update_btn(cont, &update_img, "System\nUpdate", &SettingPanel::_handle_callback, this)
 #ifdef ZBOLT
@@ -57,7 +60,7 @@ SettingPanel::SettingPanel(KWebSocketClient &c, std::mutex &l, lv_obj_t *parent,
 
   static lv_coord_t grid_main_row_dsc[] = {LV_GRID_FR(1), LV_GRID_FR(5), LV_GRID_FR(5), LV_GRID_FR(1),
     LV_GRID_TEMPLATE_LAST};
-  static lv_coord_t grid_main_col_dsc[] = {LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1),
+  static lv_coord_t grid_main_col_dsc[] = {LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1),
     LV_GRID_TEMPLATE_LAST};
 
   lv_obj_set_grid_dsc_array(cont, grid_main_col_dsc, grid_main_row_dsc);
@@ -65,7 +68,8 @@ SettingPanel::SettingPanel(KWebSocketClient &c, std::mutex &l, lv_obj_t *parent,
   // Row 1
   lv_obj_set_grid_cell(wifi_btn.get_container(), LV_GRID_ALIGN_STRETCH, 0, 1, LV_GRID_ALIGN_STRETCH, 1, 1);
   lv_obj_set_grid_cell(printer_profile_btn.get_container(), LV_GRID_ALIGN_STRETCH, 1, 1, LV_GRID_ALIGN_STRETCH, 1, 1);
-  lv_obj_set_grid_cell(guppy_update_btn.get_container(), LV_GRID_ALIGN_STRETCH, 2, 1, LV_GRID_ALIGN_STRETCH, 1, 1);
+  lv_obj_set_grid_cell(appstore_btn.get_container(), LV_GRID_ALIGN_STRETCH, 2, 1, LV_GRID_ALIGN_STRETCH, 1, 1);
+  lv_obj_set_grid_cell(guppy_update_btn.get_container(), LV_GRID_ALIGN_STRETCH, 3, 1, LV_GRID_ALIGN_STRETCH, 1, 1);
 
   // Row 2
   lv_obj_set_grid_cell(spoolman_btn.get_container(), LV_GRID_ALIGN_STRETCH, 0, 1, LV_GRID_ALIGN_STRETCH, 2, 1);
@@ -99,6 +103,9 @@ void SettingPanel::handle_callback(lv_event_t *event) {
     } else if (btn == spoolman_btn.get_container()) {
       spdlog::trace("setting spoolman pressed");
       spoolman_panel.foreground();
+    } else if (btn == appstore_btn.get_container()) {
+      spdlog::trace("setting app store pressed");
+      appstore_panel.foreground();
     } else if (btn == guppy_update_btn.get_container()) {
       spdlog::trace("setting system update pressed");
       update_panel.foreground();

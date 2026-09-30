@@ -113,9 +113,9 @@ wpaclient:
 ## cross-compile: these always build with the plain host g++ regardless of CROSS_COMPILE,
 ## since they're meant to run right here, not on the printer. See tests/minitest.h and
 ## docs/z_compensate_status_api.md.
-.PHONY: test test-z-compensate-status test-z-offset-persistence test-contract-fixture test-integration-harness test-subscription-baseline-ordering test-config-theme-parse-safety test-wifi-credentials
+.PHONY: test test-z-compensate-status test-z-offset-persistence test-contract-fixture test-integration-harness test-subscription-baseline-ordering test-config-theme-parse-safety test-wifi-credentials test-appstore-catalog
 
-test: test-z-compensate-status test-z-offset-persistence test-contract-fixture test-integration-harness test-subscription-baseline-ordering test-config-theme-parse-safety test-wifi-credentials
+test: test-z-compensate-status test-z-offset-persistence test-contract-fixture test-integration-harness test-subscription-baseline-ordering test-config-theme-parse-safety test-wifi-credentials test-appstore-catalog
 
 test-wifi-credentials:
 	@mkdir -p build
@@ -168,6 +168,13 @@ test-subscription-baseline-ordering: libhv.a libspdlog.a
 		-Lspdlog/build -l:libspdlog.a \
 		-o build/test_subscription_baseline_ordering
 	./build/test_subscription_baseline_ordering
+
+# AppStore catalog parsing and category unit tests
+test-appstore-catalog:
+	g++ -std=c++17 -Wall -Wextra -I./libhv/include -I. \
+		tests/test_appstore_catalog.cpp \
+		-o build/test_appstore_catalog
+	./build/test_appstore_catalog
 
 # Part 8 offline integration harness: replays the ordered success/failure traces (see
 # tests/fixtures/README.md) through the real parser/tracker AND real
