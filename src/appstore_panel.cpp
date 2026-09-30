@@ -18,6 +18,7 @@ LV_IMG_DECLARE(layers_img);
 static const char *DEFAULT_CATALOG_PATHS[] = {
   "/usr/data/openke/apps.json",
   "/usr/data/openke-seeds/apps.json",
+  "/opt/openke-seeds/apps.json",
   "/opt/openke/apps.json",
   "/etc/openke/apps.json",
   "/etc/openke-apps.json",
@@ -69,7 +70,8 @@ AppStorePanel::AppStorePanel(KWebSocketClient &c)
   build_category_bar();
 
   // Scrollable list container
-  lv_obj_set_size(list_cont, LV_PCT(100), LV_PCT(74));
+  lv_obj_set_width(list_cont, LV_PCT(100));
+  lv_obj_set_flex_grow(list_cont, 1);
   lv_obj_set_flex_flow(list_cont, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_pad_all(list_cont, 4, 0);
   lv_obj_set_style_pad_gap(list_cont, 6, 0);
