@@ -420,6 +420,8 @@ static void scan_remote_repo(std::vector<UpdatePackageItem> &packages, const std
 
 static std::vector<std::string> get_dev_server_urls() {
   std::vector<std::string> urls;
+  urls.push_back("http://192.168.1.88:8000");
+
   std::vector<std::string> conf_paths = {
     "/usr/data/openke/openke-update.conf",
     "/usr/data/printer_data/config/openke-update.conf",
