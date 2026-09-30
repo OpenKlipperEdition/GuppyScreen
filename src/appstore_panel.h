@@ -19,6 +19,7 @@ struct AppItem {
   std::string id;
   std::string name;
   std::string category;
+  std::string icon;
   std::string version;
   std::string author;
   std::string description;

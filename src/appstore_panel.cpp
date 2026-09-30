@@ -14,6 +14,56 @@ namespace sp = subprocess;
 LV_IMG_DECLARE(back);
 LV_IMG_DECLARE(refresh_img);
 LV_IMG_DECLARE(layers_img);
+LV_IMG_DECLARE(spoolman_img);
+LV_IMG_DECLARE(clock_img);
+LV_IMG_DECLARE(network_img);
+LV_IMG_DECLARE(fine_tune_img);
+LV_IMG_DECLARE(power_devices_img);
+LV_IMG_DECLARE(print);
+
+static const void *get_app_icon(const AppItem &app) {
+  const std::string &icon = app.icon;
+  const std::string &id = app.id;
+  const std::string &cat = app.category;
+
+  if (icon == "spoolman" || id == "spoolman" || icon == "spool") {
+    return &spoolman_img;
+  }
+  if (icon == "timelapse" || id == "timelapse" || icon == "clock" || icon == "camera") {
+    return &clock_img;
+  }
+  if (icon == "mobileraker" || id == "mobileraker" || icon == "mobile" || icon == "bell") {
+    return &network_img;
+  }
+  if (icon == "mainsail" || id == "mainsail") {
+    return &network_img;
+  }
+  if (icon == "fluidd" || id == "fluidd") {
+    return &fine_tune_img;
+  }
+  if (icon == "guppyscreen" || id == "guppyscreen") {
+    return &print;
+  }
+  if (icon == "helixscreen" || id == "helixscreen") {
+    return &layers_img;
+  }
+
+  // Generic category fallbacks
+  if (cat == "web_ui") {
+    return &network_img;
+  }
+  if (cat == "touch_ui") {
+    return &layers_img;
+  }
+  if (cat == "plugin") {
+    return &power_devices_img;
+  }
+  if (cat == "tool") {
+    return &fine_tune_img;
+  }
+
+  return &layers_img;
+}
 
 static const char *DEFAULT_CATALOG_PATHS[] = {
   "/usr/data/openke/apps.json",
@@ -196,6 +246,7 @@ void AppStorePanel::refresh_apps() {
           app.id = item.value("id", "");
           app.name = item.value("name", app.id);
           app.category = item.value("category", "");
+          app.icon = item.value("icon", "");
           app.version = item.value("version", "");
           app.author = item.value("author", "");
           app.description = item.value("description", "");
@@ -227,6 +278,7 @@ void AppStorePanel::refresh_apps() {
               app.id = item.value("id", "");
               app.name = item.value("name", app.id);
               app.category = item.value("category", "");
+              app.icon = item.value("icon", "");
               app.version = item.value("version", "");
               app.author = item.value("author", "");
               app.description = item.value("description", "");
@@ -295,17 +347,25 @@ void AppStorePanel::build_app_list() {
       lv_obj_set_style_bg_color(card, lv_palette_darken(LV_PALETTE_GREY, 4), 0);
     }
 
-    // Left icon container
+    // Left icon container with category-themed subtle background
     lv_obj_t *icon_cont = lv_obj_create(card);
     lv_obj_set_size(icon_cont, 48, 48);
-    lv_obj_set_style_radius(icon_cont, 6, 0);
+    lv_obj_set_style_radius(icon_cont, 8, 0);
     lv_obj_set_style_pad_all(icon_cont, 2, 0);
-    lv_obj_set_style_bg_color(icon_cont, lv_palette_darken(LV_PALETTE_GREY, 3), 0);
+    if (app.category == "web_ui") {
+      lv_obj_set_style_bg_color(icon_cont, lv_palette_darken(LV_PALETTE_BLUE, 3), 0);
+    } else if (app.category == "touch_ui") {
+      lv_obj_set_style_bg_color(icon_cont, lv_palette_darken(LV_PALETTE_PURPLE, 3), 0);
+    } else if (app.category == "plugin") {
+      lv_obj_set_style_bg_color(icon_cont, lv_palette_darken(LV_PALETTE_TEAL, 3), 0);
+    } else {
+      lv_obj_set_style_bg_color(icon_cont, lv_palette_darken(LV_PALETTE_GREY, 3), 0);
+    }
     lv_obj_set_style_border_width(icon_cont, 0, 0);
     lv_obj_clear_flag(icon_cont, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *icon_img = lv_img_create(icon_cont);
-    lv_img_set_src(icon_img, &layers_img);
+    lv_img_set_src(icon_img, get_app_icon(app));
     lv_obj_center(icon_img);
 
     // Middle text container
