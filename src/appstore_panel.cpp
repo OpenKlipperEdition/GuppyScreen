@@ -76,6 +76,70 @@ static const char *DEFAULT_CATALOG_PATHS[] = {
   nullptr
 };
 
+static void inspect_app_resources(AppItem &app) {
+  if (!app.resource_summary.empty()) return;
+
+  if (app.id == "guppyscreen" && app.is_active) {
+    std::ifstream status_f("/proc/self/status");
+    int rss_kb = 0;
+    std::string s_line;
+    while (std::getline(status_f, s_line)) {
+      if (s_line.rfind("VmRSS:", 0) == 0) {
+        std::sscanf(s_line.c_str(), "VmRSS: %d", &rss_kb);
+        break;
+      }
+    }
+    if (rss_kb > 0) {
+      app.ram_mb = (double)rss_kb / 1024.0;
+      app.ram_str = fmt::format("{:.1f} MB", app.ram_mb);
+      app.resource_summary = fmt::format("RAM: {}", app.ram_str);
+    }
+    return;
+  }
+
+  if (app.is_installed && app.has_service && app.service_status == "running") {
+    std::vector<std::string> pid_files = {
+      "/var/run/" + app.id + ".pid",
+      "/tmp/" + app.id + ".pid",
+      "/var/run/" + app.id + "/" + app.id + ".pid"
+    };
+    int pid = -1;
+    for (const auto &pf : pid_files) {
+      if (fs::exists(pf)) {
+        try {
+          std::ifstream pff(pf);
+          int p = -1;
+          if (pff >> p && p > 0 && fs::exists("/proc/" + std::to_string(p))) {
+            pid = p;
+            break;
+          }
+        } catch (...) {}
+      }
+    }
+
+    if (pid > 0) {
+      app.pid = pid;
+      std::string stat_path = "/proc/" + std::to_string(pid) + "/status";
+      if (fs::exists(stat_path)) {
+        std::ifstream status_f(stat_path);
+        int rss_kb = 0;
+        std::string s_line;
+        while (std::getline(status_f, s_line)) {
+          if (s_line.rfind("VmRSS:", 0) == 0) {
+            std::sscanf(s_line.c_str(), "VmRSS: %d", &rss_kb);
+            break;
+          }
+        }
+        if (rss_kb > 0) {
+          app.ram_mb = (double)rss_kb / 1024.0;
+          app.ram_str = fmt::format("{:.1f} MB", app.ram_mb);
+          app.resource_summary = fmt::format("RAM: {}", app.ram_str);
+        }
+      }
+    }
+  }
+}
+
 AppStorePanel::AppStorePanel(KWebSocketClient &c)
   : ws(c)
   , cont(lv_obj_create(lv_scr_act()))
@@ -267,24 +331,7 @@ void AppStorePanel::refresh_apps() {
           app.ram_str = item.value("ram_str", "");
           app.resource_summary = item.value("resource_summary", "");
 
-          // Fallback self-inspection for GuppyScreen if active
-          if (app.id == "guppyscreen" && app.is_active && app.resource_summary.empty()) {
-            std::ifstream status_f("/proc/self/status");
-            int rss_kb = 0;
-            std::string s_line;
-            while (std::getline(status_f, s_line)) {
-              if (s_line.rfind("VmRSS:", 0) == 0) {
-                std::sscanf(s_line.c_str(), "VmRSS: %d", &rss_kb);
-                break;
-              }
-            }
-            if (rss_kb > 0) {
-              app.ram_mb = (double)rss_kb / 1024.0;
-              app.ram_str = fmt::format("{:.1f} MB", app.ram_mb);
-              app.resource_summary = fmt::format("RAM: {}", app.ram_str);
-            }
-          }
-
+          inspect_app_resources(app);
           apps.push_back(app);
         }
         loaded_via_cli = true;
@@ -384,6 +431,7 @@ void AppStorePanel::refresh_apps() {
               app.service_enabled = svc_enabled;
               app.service_status = app.is_installed && app.has_service ? (svc_enabled ? "running" : "stopped") : "";
               app.status = app.is_active ? "active" : (app.is_installed ? "installed" : "available");
+              inspect_app_resources(app);
               apps.push_back(app);
             }
             break;
@@ -782,7 +830,7 @@ void AppStorePanel::build_app_list() {
       lv_obj_add_event_cb(inst_btn, inst_handler, LV_EVENT_CLICKED, this);
     }
 
-    // Middle Row: Status, Resources, Category, Version across full card width
+    // Middle Row: Status, Category, Version across full card width
     std::string meta = fmt::format("#9E9E9E {} | v{}#", app.category, app.version);
 
     if (app.is_installed && app.has_service) {
@@ -795,10 +843,6 @@ void AppStorePanel::build_app_list() {
       }
     } else if (app.is_active) {
       meta += "   #4CAF50 Active UI#";
-    }
-
-    if (!app.resource_summary.empty()) {
-      meta += fmt::format("   #64B5F6 [{}]#", app.resource_summary);
     }
 
     if (app.has_update) {
@@ -815,6 +859,17 @@ void AppStorePanel::build_app_list() {
     lv_label_set_recolor(meta_lbl, true);
     lv_obj_set_style_text_font(meta_lbl, &lv_font_montserrat_12, 0);
     lv_obj_set_style_text_color(meta_lbl, lv_palette_lighten(LV_PALETTE_GREY, 1), 0);
+
+    // Resource Usage Row (Prominently displayed whenever active/running)
+    if (!app.resource_summary.empty()) {
+      lv_obj_t *res_lbl = lv_label_create(card);
+      lv_obj_set_width(res_lbl, LV_PCT(100));
+      std::string res_text = fmt::format("#64B5F6 [ {} ]#", app.resource_summary);
+      lv_label_set_text(res_lbl, res_text.c_str());
+      lv_label_set_recolor(res_lbl, true);
+      lv_obj_set_style_text_font(res_lbl, &lv_font_montserrat_12, 0);
+      lv_obj_set_style_text_color(res_lbl, lv_palette_lighten(LV_PALETTE_BLUE, 1), 0);
+    }
 
     // Bottom Row: Description (Full Width)
     if (!app.description.empty()) {
