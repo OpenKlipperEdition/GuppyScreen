@@ -512,6 +512,7 @@ static void scan_dev_servers(std::vector<UpdatePackageItem> &packages, const std
             try {
               uint64_t cl = std::stoull(hline.substr(15));
               if (cl > 0) {
+                item.total_size_bytes = cl;
                 std::stringstream ss;
                 ss << std::fixed << std::setprecision(1) << (static_cast<double>(cl) / (1024.0 * 1024.0)) << " MB";
                 item.file_size = ss.str();
@@ -589,6 +590,7 @@ static void scan_dev_servers(std::vector<UpdatePackageItem> &packages, const std
               item.status_badge = "Dev Build";
 
               uint64_t sz_bytes = rel.value("size_bytes", (uint64_t)0);
+              item.total_size_bytes = sz_bytes;
               if (sz_bytes > 0) {
                 std::stringstream ss;
                 ss << std::fixed << std::setprecision(1) << (static_cast<double>(sz_bytes) / (1024.0 * 1024.0)) << " MB";
@@ -643,6 +645,7 @@ static void scan_dev_servers(std::vector<UpdatePackageItem> &packages, const std
                 try {
                   uint64_t cl = std::stoull(hline.substr(15));
                   if (cl > 0) {
+                    item.total_size_bytes = cl;
                     std::stringstream ss;
                     ss << std::fixed << std::setprecision(1) << (static_cast<double>(cl) / (1024.0 * 1024.0)) << " MB";
                     item.file_size = ss.str();
@@ -753,6 +756,7 @@ static void scan_local_storage(std::vector<UpdatePackageItem> &packages, const s
             }
 
             auto fsize = fs::file_size(entry.path());
+            item.total_size_bytes = static_cast<uint64_t>(fsize);
             std::stringstream ss;
             ss << std::fixed << std::setprecision(1) << (static_cast<double>(fsize) / (1024.0 * 1024.0)) << " MB";
             item.file_size = ss.str();
@@ -1453,31 +1457,83 @@ void UpdatePanel::execute_update_thread(UpdatePackageItem pkg) {
     progress_percent = 0;
 
     uint64_t expected_total_bytes = pkg.total_size_bytes;
-    auto start_time = std::chrono::steady_clock::now();
+    std::string header_dump = "/tmp/curl-download-headers.txt";
+    unlink(header_dump.c_str());
 
-    std::string curl_cmd = "curl -fSL -k --connect-timeout 20 -m 1200 '" + pkg.file_path + "' -o '" + local_swu_path + "' > /tmp/curl-download.log 2>&1";
+    std::string curl_cmd = "curl -fSL -k -D '" + header_dump + "' --connect-timeout 20 -m 1200 '" + pkg.file_path + "' -o '" + local_swu_path + "' > /tmp/curl-download.log 2>&1";
+
+    uintmax_t last_sampled_sz = 0;
+    auto last_sample_time = std::chrono::steady_clock::now();
+    double rolling_speed = 0.0;
+    bool has_speed = false;
 
     try {
       auto dl_proc = sp::Popen(curl_cmd, sp::shell{true});
       while (dl_proc.poll() == -1) {
-        usleep(200000); // 200ms
+        usleep(250000); // 250ms
+
+        if (expected_total_bytes == 0 && fs::exists(header_dump)) {
+          std::ifstream hf(header_dump);
+          std::string hline;
+          while (std::getline(hf, hline)) {
+            if (hline.rfind("Content-Length:", 0) == 0 || hline.rfind("content-length:", 0) == 0) {
+              try {
+                uint64_t cl = std::stoull(hline.substr(15));
+                if (cl > 0) {
+                  expected_total_bytes = cl;
+                }
+              } catch (...) {}
+            }
+          }
+        }
+
         if (fs::exists(local_swu_path)) {
           uintmax_t cur_sz = fs::file_size(local_swu_path);
           auto now = std::chrono::steady_clock::now();
-          double total_elapsed = std::chrono::duration<double>(now - start_time).count();
+          double dt = std::chrono::duration<double>(now - last_sample_time).count();
+
+          if (dt >= 0.4) {
+            double inst_speed = (cur_sz >= last_sampled_sz) ? static_cast<double>(cur_sz - last_sampled_sz) / dt : 0.0;
+            if (!has_speed) {
+              rolling_speed = inst_speed;
+              has_speed = true;
+            } else {
+              rolling_speed = (0.65 * rolling_speed) + (0.35 * inst_speed);
+            }
+            last_sampled_sz = cur_sz;
+            last_sample_time = now;
+          }
+
           double cur_mb = static_cast<double>(cur_sz) / (1024.0 * 1024.0);
-          double speed = total_elapsed > 0.05 ? static_cast<double>(cur_sz) / total_elapsed : 0.0;
-          double speed_mb = speed / (1024.0 * 1024.0);
+          double speed_mb = rolling_speed / (1024.0 * 1024.0);
 
           std::stringstream ss;
           if (expected_total_bytes > 0) {
             double total_mb = static_cast<double>(expected_total_bytes) / (1024.0 * 1024.0);
             int pct = static_cast<int>((cur_sz * 100) / expected_total_bytes);
-            progress_percent = std::min(99, std::max(0, pct));
-            ss << "Downloading: " << std::fixed << std::setprecision(1) << cur_mb << " / " << total_mb << " MB (" << speed_mb << " MB/s)";
+            pct = std::min(99, std::max(0, pct));
+            progress_percent = std::max(progress_percent.load(), pct);
+
+            ss << "Downloading: " << std::fixed << std::setprecision(1) << cur_mb << " / " << total_mb << " MB (" << pct << "%)";
+            if (speed_mb >= 0.01) {
+              ss << " • " << std::fixed << std::setprecision(2) << speed_mb << " MB/s";
+              if (rolling_speed > 0.0 && cur_sz < expected_total_bytes) {
+                uint64_t remaining_bytes = expected_total_bytes - cur_sz;
+                int eta_secs = static_cast<int>(remaining_bytes / rolling_speed);
+                if (eta_secs >= 60) {
+                  int m = eta_secs / 60;
+                  int s = eta_secs % 60;
+                  ss << " • ETA: " << m << "m " << (s < 10 ? "0" : "") << s << "s";
+                } else {
+                  ss << " • ETA: " << eta_secs << "s";
+                }
+              }
+            }
           } else {
-            ss << "Downloading: " << std::fixed << std::setprecision(1) << cur_mb << " MB (" << speed_mb << " MB/s)";
-            progress_percent = std::min(progress_percent + 1, 95);
+            ss << "Downloading: " << std::fixed << std::setprecision(1) << cur_mb << " MB";
+            if (speed_mb >= 0.01) {
+              ss << " • " << std::fixed << std::setprecision(2) << speed_mb << " MB/s";
+            }
           }
           {
             std::lock_guard<std::mutex> lock(status_mutex);
@@ -1485,6 +1541,8 @@ void UpdatePanel::execute_update_thread(UpdatePackageItem pkg) {
           }
         }
       }
+
+      unlink(header_dump.c_str());
 
       int dl_rc = dl_proc.retcode();
       if (dl_rc != 0 || !fs::exists(local_swu_path) || fs::file_size(local_swu_path) < 1024) {
@@ -1495,6 +1553,7 @@ void UpdatePanel::execute_update_thread(UpdatePackageItem pkg) {
         return;
       }
     } catch (const std::exception &e) {
+      unlink(header_dump.c_str());
       std::lock_guard<std::mutex> lock(status_mutex);
       status_message = std::string("Download error: ") + e.what();
       state = UpdateState::FAILED;
