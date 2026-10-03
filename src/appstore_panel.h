@@ -28,6 +28,8 @@ struct AppItem {
   bool is_installed{false};
   bool is_active{false};
   bool has_update{false};
+  bool has_service{false};
+  std::string service_status; // "running", "stopped", ""
   std::string status; // "active", "installed", "available"
 };
 
@@ -46,6 +48,7 @@ class AppStorePanel {
   void execute_update(const AppItem &app);
   void execute_activate(const AppItem &app);
   void execute_remove(const AppItem &app);
+  void execute_service_action(const AppItem &app, const std::string &action);
 
  private:
   static void _handle_callback(lv_event_t *event) {
@@ -65,6 +68,7 @@ class AppStorePanel {
   void show_update_confirm(const AppItem &app);
   void show_activate_confirm(const AppItem &app);
   void show_remove_confirm(const AppItem &app);
+  void show_service_confirm(const AppItem &app, const std::string &action);
   void show_progress_modal(const std::string &title, const std::string &initial_stage);
   void close_modal();
   void show_alert(const std::string &title, const std::string &msg);

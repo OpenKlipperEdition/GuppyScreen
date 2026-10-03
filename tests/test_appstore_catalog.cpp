@@ -18,6 +18,8 @@ struct TestAppItem {
   bool is_builtin{false};
   bool is_installed{false};
   bool is_active{false};
+  bool has_service{false};
+  std::string service_status;
   std::string status;
 };
 
@@ -60,6 +62,8 @@ TEST(AppStoreCatalog, parses_manifest_json_correctly) {
     app.is_builtin = item.value("is_builtin", false);
     app.is_installed = app.is_builtin;
     app.is_active = (app.id == "mainsail" || app.id == "guppyscreen");
+    app.has_service = item.contains("service") || item.contains("service_init");
+    app.service_status = app.is_installed && app.has_service ? "running" : (app.has_service ? "stopped" : "");
     app.status = app.is_active ? "active" : (app.is_installed ? "installed" : "available");
     apps.push_back(app);
   }
@@ -68,16 +72,18 @@ TEST(AppStoreCatalog, parses_manifest_json_correctly) {
   ASSERT_TRUE(std::any_of(apps.begin(), apps.end(), [](const TestAppItem &a) { return a.id == "fluidd" && a.category == "web_ui"; }));
   ASSERT_TRUE(std::any_of(apps.begin(), apps.end(), [](const TestAppItem &a) { return a.id == "guppyscreen" && a.is_builtin && a.is_active; }));
   ASSERT_TRUE(std::any_of(apps.begin(), apps.end(), [](const TestAppItem &a) { return a.id == "helixscreen" && a.category == "touch_ui"; }));
-  ASSERT_TRUE(std::any_of(apps.begin(), apps.end(), [](const TestAppItem &a) { return a.id == "spoolman" && a.category == "plugin"; }));
+  ASSERT_TRUE(std::any_of(apps.begin(), apps.end(), [](const TestAppItem &a) { return a.id == "spoolman" && a.category == "plugin" && a.has_service; }));
+  ASSERT_TRUE(std::any_of(apps.begin(), apps.end(), [](const TestAppItem &a) { return a.id == "mobileraker" && a.category == "plugin" && a.has_service; }));
+  ASSERT_TRUE(std::any_of(apps.begin(), apps.end(), [](const TestAppItem &a) { return a.id == "octoapp" && a.category == "plugin" && a.has_service; }));
 }
 
 TEST(AppStoreCatalog, category_filtering_and_sorting) {
   std::vector<TestAppItem> apps = {
-    {"mainsail", "Mainsail", "web_ui", "2.12.0", "Mainsail Crew", "", true, true, true, "active"},
-    {"fluidd", "Fluidd", "web_ui", "1.30.0", "Fluidd Team", "", false, false, false, "available"},
-    {"guppyscreen", "GuppyScreen", "touch_ui", "1.0.0", "OpenKE", "", true, true, true, "active"},
-    {"helixscreen", "HelixScreen", "touch_ui", "0.5.0", "Helix", "", false, true, false, "installed"},
-    {"spoolman", "Spoolman", "plugin", "0.20.0", "Donkie", "", false, false, false, "available"}
+    {"mainsail", "Mainsail", "web_ui", "2.12.0", "Mainsail Crew", "", true, true, true, false, "", "active"},
+    {"fluidd", "Fluidd", "web_ui", "1.30.0", "Fluidd Team", "", false, false, false, false, "", "available"},
+    {"guppyscreen", "GuppyScreen", "touch_ui", "1.0.0", "OpenKE", "", true, true, true, false, "", "active"},
+    {"helixscreen", "HelixScreen", "touch_ui", "0.5.0", "Helix", "", false, true, false, false, "", "installed"},
+    {"spoolman", "Spoolman", "plugin", "0.20.0", "Donkie", "", false, false, false, true, "stopped", "available"}
   };
 
   // Filter web_ui
@@ -106,6 +112,40 @@ TEST(AppStoreCatalog, category_filtering_and_sorting) {
   ASSERT_EQ(apps[2].status, std::string("installed"));
   ASSERT_EQ(apps[3].status, std::string("available"));
   ASSERT_EQ(apps[4].status, std::string("available"));
+}
+
+TEST(AppStoreCatalog, service_detection_and_status_parsing) {
+  std::string json_data = R"([
+    {"id": "spoolman", "name": "Spoolman", "category": "plugin", "is_installed": true, "has_service": true, "service_status": "running", "status": "installed"},
+    {"id": "mobileraker", "name": "Mobileraker", "category": "plugin", "is_installed": true, "has_service": true, "service_status": "stopped", "status": "installed"},
+    {"id": "timelapse", "name": "Moonraker Timelapse", "category": "plugin", "is_installed": true, "has_service": false, "service_status": "", "status": "installed"}
+  ])";
+
+  json parsed = json::parse(json_data);
+  ASSERT_TRUE(parsed.is_array());
+  ASSERT_EQ((int)parsed.size(), 3);
+
+  std::vector<TestAppItem> apps;
+  for (const auto &item : parsed) {
+    TestAppItem app;
+    app.id = item.value("id", "");
+    app.name = item.value("name", app.id);
+    app.category = item.value("category", "");
+    app.is_installed = item.value("is_installed", false);
+    app.has_service = item.value("has_service", false);
+    app.service_status = item.value("service_status", "");
+    app.status = item.value("status", "available");
+    apps.push_back(app);
+  }
+
+  ASSERT_TRUE(apps[0].has_service);
+  ASSERT_EQ(apps[0].service_status, std::string("running"));
+
+  ASSERT_TRUE(apps[1].has_service);
+  ASSERT_EQ(apps[1].service_status, std::string("stopped"));
+
+  ASSERT_FALSE(apps[2].has_service);
+  ASSERT_EQ(apps[2].service_status, std::string(""));
 }
 
 int main() {
