@@ -45,7 +45,7 @@ UpdatePanel::UpdatePanel(KWebSocketClient &c)
   , title_label(lv_label_create(top_bar))
   , list_cont(lv_obj_create(cont))
   , back_btn(top_bar, &back, "Back", &UpdatePanel::_handle_callback, this)
-  , scan_btn(top_bar, &refresh_img, "Scan USB", &UpdatePanel::_handle_callback, this)
+  , scan_btn(top_bar, &refresh_img, "Refresh", &UpdatePanel::_handle_callback, this)
 {
   lv_obj_move_background(cont);
   lv_obj_clear_flag(cont, LV_OBJ_FLAG_SCROLLABLE);
@@ -794,7 +794,7 @@ void UpdatePanel::build_package_list() {
     lv_obj_set_style_radius(empty_card, 8, 0);
 
     lv_obj_t *msg = lv_label_create(empty_card);
-    lv_label_set_text(msg, "No SWUpdate packages (.swu) found.\n\nInsert a USB flash drive containing an openke-update-*.swu\nfile and click 'Scan USB'.");
+    lv_label_set_text(msg, "No SWUpdate packages (.swu) found.\n\nInsert a USB drive or click 'Refresh' to check for updates.");
     lv_obj_set_style_text_align(msg, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_font(msg, &lv_font_montserrat_14, 0);
     lv_obj_center(msg);
