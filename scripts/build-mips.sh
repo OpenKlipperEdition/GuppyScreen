@@ -28,6 +28,7 @@ trap restore_libs EXIT
 
 # --- libhv ---
 echo "=== Building libhv for MIPS ==="
+rm -rf libhv/build-mips
 mkdir -p libhv/build-mips
 cd libhv/build-mips
 cmake .. \
@@ -47,6 +48,7 @@ cd "$WORKDIR"
 
 # --- spdlog ---
 echo "=== Building spdlog for MIPS ==="
+rm -rf spdlog/build-mips
 mkdir -p spdlog/build-mips
 cd spdlog/build-mips
 cmake .. \
