@@ -304,6 +304,19 @@ void AppStorePanel::refresh_apps() {
           json j;
           f >> j;
           if (j.contains("apps") && j["apps"].is_array()) {
+            std::string active_web = "mainsail";
+            std::string active_touch = "guppyscreen";
+            if (fs::exists("/usr/data/openke/active_web_ui")) {
+              std::ifstream awf("/usr/data/openke/active_web_ui");
+              std::string val;
+              if (awf >> val && !val.empty()) active_web = val;
+            }
+            if (fs::exists("/usr/data/openke/active_touch_ui")) {
+              std::ifstream atf("/usr/data/openke/active_touch_ui");
+              std::string val;
+              if (atf >> val && !val.empty()) active_touch = val;
+            }
+
             for (const auto &item : j["apps"]) {
               AppItem app;
               app.id = item.value("id", "");
@@ -315,12 +328,61 @@ void AppStorePanel::refresh_apps() {
               app.author = item.value("author", "");
               app.description = item.value("description", "");
               app.is_builtin = item.value("is_builtin", false);
-              app.is_installed = app.is_builtin;
-              app.is_active = (app.id == "mainsail" || app.id == "guppyscreen");
-              app.has_update = false;
+
+              // Check if installed via metadata, probe_path, or apps directory
+              bool installed = app.is_builtin;
+              std::string meta_path = "/usr/data/openke/installed/" + app.id + ".json";
+              if (!installed && fs::exists(meta_path)) {
+                installed = true;
+                try {
+                  std::ifstream mf(meta_path);
+                  json mj;
+                  mf >> mj;
+                  if (mj.contains("version") && mj["version"].is_string()) {
+                    app.installed_version = mj["version"].get<std::string>();
+                  }
+                } catch (...) {}
+              }
+              if (!installed && fs::exists("/usr/data/openke/apps/" + app.id)) {
+                installed = true;
+              }
+              if (!installed && item.contains("probe_path") && item["probe_path"].is_string() && fs::exists(item["probe_path"].get<std::string>())) {
+                installed = true;
+              }
+              if (!installed && item.contains("install_path") && item["install_path"].is_string() && fs::exists(item["install_path"].get<std::string>())) {
+                installed = true;
+              }
+
+              app.is_installed = installed;
+              if (app.is_installed && app.installed_version.empty()) {
+                app.installed_version = app.version;
+              }
+
+              app.is_active = (app.category == "web_ui" && app.id == active_web) ||
+                              (app.category == "touch_ui" && app.id == active_touch);
+              app.has_update = (app.is_installed && !app.is_builtin && !app.installed_version.empty() && !app.version.empty() && app.installed_version != app.version);
+
+              // Check service status
               app.has_service = item.contains("service") || item.contains("service_init");
-              app.service_enabled = true;
-              app.service_status = app.is_installed && app.has_service ? "running" : (app.has_service ? "stopped" : "");
+              bool svc_enabled = true;
+              bool svc_found = false;
+              if (fs::exists("/usr/data/openke/services.d")) {
+                for (const auto &entry : fs::directory_iterator("/usr/data/openke/services.d")) {
+                  std::string fname = entry.path().filename().string();
+                  if (fname.find(app.id) != std::string::npos) {
+                    svc_found = true;
+                    if (fname.rfind("K", 0) == 0 || fname.find(".disabled") != std::string::npos) {
+                      svc_enabled = false;
+                    }
+                    break;
+                  }
+                }
+              }
+              if (svc_found) {
+                app.has_service = true;
+              }
+              app.service_enabled = svc_enabled;
+              app.service_status = app.is_installed && app.has_service ? (svc_enabled ? "running" : "stopped") : "";
               app.status = app.is_active ? "active" : (app.is_installed ? "installed" : "available");
               apps.push_back(app);
             }
@@ -721,22 +783,22 @@ void AppStorePanel::build_app_list() {
     }
 
     // Middle Row: Status, Resources, Category, Version across full card width
-    std::string meta = fmt::format("#9E9E9E {} • v{}#", app.category, app.version);
+    std::string meta = fmt::format("#9E9E9E {} | v{}#", app.category, app.version);
 
     if (app.is_installed && app.has_service) {
       if (!app.service_enabled) {
-        meta += "   #9E9E9E ✕ Service: Disabled#";
+        meta += "   #9E9E9E Service: Disabled#";
       } else if (app.service_status == "running") {
-        meta += "   #4CAF50 ● Service: Running#";
+        meta += "   #4CAF50 Service: Running#";
       } else {
-        meta += "   #FFA726 ○ Service: Stopped#";
+        meta += "   #FFA726 Service: Stopped#";
       }
     } else if (app.is_active) {
-      meta += "   #4CAF50 ● Active UI#";
+      meta += "   #4CAF50 Active UI#";
     }
 
     if (!app.resource_summary.empty()) {
-      meta += fmt::format("   #64B5F6 [ {} ]#", app.resource_summary);
+      meta += fmt::format("   #64B5F6 [{}]#", app.resource_summary);
     }
 
     if (app.has_update) {
@@ -744,7 +806,7 @@ void AppStorePanel::build_app_list() {
     }
 
     if (!app.author.empty()) {
-      meta += fmt::format("   #757575 by {}#", app.author);
+      meta += fmt::format("   #9E9E9E by {}#", app.author);
     }
 
     lv_obj_t *meta_lbl = lv_label_create(card);
