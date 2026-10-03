@@ -1112,6 +1112,7 @@ void UpdatePanel::close_modal() {
   if (modal_cont != nullptr) {
     lv_obj_del(modal_cont);
     modal_cont = nullptr;
+    stage_title_label = nullptr;
     progress_bar = nullptr;
     progress_label = nullptr;
     status_label = nullptr;
@@ -1284,8 +1285,6 @@ void UpdatePanel::show_progress_view(const UpdatePackageItem &pkg) {
   lv_obj_clear_flag(modal_cont, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(modal_cont, LV_OBJ_FLAG_CLICKABLE);
 
-  // In FLASHING and SUCCESS states, clicking outside is completely ignored and NEVER closes the dialog.
-  // In FAILED state, clicking outside will dismiss the failure dialog.
   lv_obj_add_event_cb(modal_cont, [](lv_event_t *e) {
     auto *self = static_cast<UpdatePanel*>(e->user_data);
     lv_obj_t *target = lv_event_get_target(e);
@@ -1310,17 +1309,19 @@ void UpdatePanel::show_progress_view(const UpdatePackageItem &pkg) {
   lv_obj_set_style_pad_all(card, 16, 0);
   lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
 
-  lv_obj_t *title = lv_label_create(card);
-  lv_label_set_text(title, pkg.is_remote ? "Downloading & Installing Update..." : "Flashing Firmware Update...");
-  lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
-  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 0);
+  stage_title_label = lv_label_create(card);
+  std::string init_title = pkg.is_remote ? "Downloading Firmware Package..." : "Flashing Firmware Update...";
+  stage_title_str = init_title;
+  lv_label_set_text(stage_title_label, init_title.c_str());
+  lv_obj_set_style_text_font(stage_title_label, &lv_font_montserrat_16, 0);
+  lv_obj_align(stage_title_label, LV_ALIGN_TOP_MID, 0, 0);
 
   // Progress bar
   progress_bar = lv_bar_create(card);
   lv_obj_set_size(progress_bar, LV_PCT(100), 24);
   lv_obj_align(progress_bar, LV_ALIGN_TOP_MID, 0, 40);
   lv_bar_set_range(progress_bar, 0, 100);
-  lv_bar_set_value(progress_bar, 0, LV_ANIM_ON);
+  lv_bar_set_value(progress_bar, 0, LV_ANIM_OFF);
 
   progress_label = lv_label_create(card);
   lv_label_set_text(progress_label, "0%");
@@ -1398,9 +1399,10 @@ void UpdatePanel::execute_update_thread(UpdatePackageItem pkg) {
 
     {
       std::lock_guard<std::mutex> lock(status_mutex);
-      status_message = "Downloading firmware package...";
+      stage_title_str = "Downloading Firmware Package...";
+      status_message = "Connecting to remote repository...";
     }
-    progress_percent = 5;
+    progress_percent = 0;
 
     std::string curl_cmd = "curl -fSL -k --connect-timeout 20 -m 1200 '" + pkg.file_path + "' -o '" + local_swu_path + "' > /tmp/curl-download.log 2>&1";
 
@@ -1417,7 +1419,7 @@ void UpdatePanel::execute_update_thread(UpdatePackageItem pkg) {
             std::lock_guard<std::mutex> lock(status_mutex);
             status_message = ss.str();
           }
-          progress_percent = std::min(progress_percent + 1, 45);
+          progress_percent = std::min(progress_percent + 1, 99);
         }
       }
 
@@ -1437,12 +1439,13 @@ void UpdatePanel::execute_update_thread(UpdatePackageItem pkg) {
       return;
     }
 
-    progress_percent = 50;
+    progress_percent = 100;
 
     if (!pkg.expected_sha256.empty()) {
       {
         std::lock_guard<std::mutex> lock(status_mutex);
-        status_message = "Verifying package checksum...";
+        stage_title_str = "Verifying Package Integrity...";
+        status_message = "Checking SHA256 checksum...";
       }
 
       std::string sha_cmd = "sha256sum '" + local_swu_path + "' | awk '{print $1}'";
@@ -1472,8 +1475,11 @@ void UpdatePanel::execute_update_thread(UpdatePackageItem pkg) {
   std::string target_slot = KUtils::is_slot2_active() ? "slot1" : "slot2";
   std::string selection_arg = "stable," + target_slot;
 
+  // Reset progress bar for Stage 2 (Flashing System Firmware)
+  progress_percent = 0;
   {
     std::lock_guard<std::mutex> lock(status_mutex);
+    stage_title_str = "Flashing System Firmware (" + target_slot + ")...";
     status_message = "Targeting inactive " + target_slot + "... invoking swupdate";
   }
 
@@ -1503,6 +1509,7 @@ void UpdatePanel::execute_update_thread(UpdatePackageItem pkg) {
     if (rc == 0) {
       progress_percent = 100;
       std::lock_guard<std::mutex> lock(status_mutex);
+      stage_title_str = "Firmware Update Complete!";
       status_message = "Update verified and written to " + target_slot + " successfully!";
       state = UpdateState::SUCCESS;
     } else {
@@ -1519,6 +1526,7 @@ void UpdatePanel::execute_update_thread(UpdatePackageItem pkg) {
         }
       }
       std::lock_guard<std::mutex> lock(status_mutex);
+      stage_title_str = "Firmware Flash Failed";
       status_message = "SWUpdate failed (code " + std::to_string(rc) + "): " + err_output;
       state = UpdateState::FAILED;
     }
@@ -1527,6 +1535,7 @@ void UpdatePanel::execute_update_thread(UpdatePackageItem pkg) {
       unlink(local_swu_path.c_str());
     }
     std::lock_guard<std::mutex> lock(status_mutex);
+    stage_title_str = "Firmware Flash Failed";
     status_message = std::string("Exception executing swupdate: ") + e.what();
     state = UpdateState::FAILED;
   }
@@ -1544,6 +1553,10 @@ void UpdatePanel::timer_tick() {
       check_usb_auto_detect();
     }
   } else if (state == UpdateState::FLASHING) {
+    if (stage_title_label != nullptr) {
+      std::lock_guard<std::mutex> lock(status_mutex);
+      lv_label_set_text(stage_title_label, stage_title_str.c_str());
+    }
     if (progress_bar != nullptr) {
       lv_bar_set_value(progress_bar, progress_percent.load(), LV_ANIM_ON);
     }
@@ -1556,6 +1569,10 @@ void UpdatePanel::timer_tick() {
       lv_label_set_text(status_label, status_message.c_str());
     }
   } else if (state == UpdateState::SUCCESS) {
+    if (stage_title_label != nullptr) {
+      std::lock_guard<std::mutex> lock(status_mutex);
+      lv_label_set_text(stage_title_label, stage_title_str.c_str());
+    }
     if (progress_bar != nullptr) {
       lv_bar_set_value(progress_bar, 100, LV_ANIM_OFF);
     }
@@ -1573,6 +1590,10 @@ void UpdatePanel::timer_tick() {
       if (lbl) lv_label_set_text(lbl, "Reboot Now");
     }
   } else if (state == UpdateState::FAILED) {
+    if (stage_title_label != nullptr) {
+      std::lock_guard<std::mutex> lock(status_mutex);
+      lv_label_set_text(stage_title_label, stage_title_str.c_str());
+    }
     if (status_label != nullptr) {
       std::lock_guard<std::mutex> lock(status_mutex);
       lv_label_set_text(status_label, status_message.c_str());

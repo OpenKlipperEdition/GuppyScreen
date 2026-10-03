@@ -65,10 +65,12 @@ class AppStorePanel {
   void show_update_confirm(const AppItem &app);
   void show_activate_confirm(const AppItem &app);
   void show_remove_confirm(const AppItem &app);
-  void show_progress_modal(const std::string &title, const std::string &msg);
+  void show_progress_modal(const std::string &title, const std::string &initial_stage);
   void close_modal();
   void show_alert(const std::string &title, const std::string &msg);
   void check_async_task();
+  void stream_process_output(const std::string &cmd, const std::string &initial_stage);
+  void parse_appstore_output_line(const std::string &line);
 
   KWebSocketClient &ws;
   lv_obj_t *cont{nullptr};
@@ -83,7 +85,7 @@ class AppStorePanel {
   std::string current_category{"all"};
   AppItem pending_app;
 
-  // Async task tracking
+  // Async task tracking and live progress UI
   std::thread worker_thread;
   std::atomic<bool> is_busy{false};
   std::atomic<bool> task_finished{false};
@@ -91,6 +93,16 @@ class AppStorePanel {
   std::string task_status_msg;
   std::string task_error_msg;
   lv_obj_t *modal_box{nullptr};
+  lv_obj_t *progress_bar{nullptr};
+  lv_obj_t *progress_label{nullptr};
+  lv_obj_t *stage_label{nullptr};
+  lv_obj_t *detail_label{nullptr};
+
+  std::atomic<int> progress_percent{0};
+  std::mutex progress_mutex;
+  std::string progress_stage_str;
+  std::string progress_detail_str;
+
   lv_timer_t *poll_timer{nullptr};
 };
 

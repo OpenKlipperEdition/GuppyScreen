@@ -82,6 +82,7 @@ class UpdatePanel {
   lv_obj_t *usb_detect_mbox{nullptr};
   lv_obj_t *whats_new_mbox{nullptr};
   bool first_boot_checked{false};
+  lv_obj_t *stage_title_label{nullptr};
   lv_obj_t *progress_bar{nullptr};
   lv_obj_t *progress_label{nullptr};
   lv_obj_t *status_label{nullptr};
@@ -101,6 +102,7 @@ class UpdatePanel {
   std::atomic<int> progress_percent{0};
   std::atomic<int> current_step{0};
   std::atomic<int> total_steps{0};
+  std::string stage_title_str;
   std::string status_message;
   std::string error_message;
   std::mutex status_mutex;

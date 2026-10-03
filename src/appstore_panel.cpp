@@ -764,26 +764,185 @@ void AppStorePanel::show_remove_confirm(const AppItem &app) {
   lv_obj_center(mbox);
 }
 
-void AppStorePanel::show_progress_modal(const std::string &title, const std::string &msg) {
+static int extract_appstore_percent(const std::string &line) {
+  auto pct_pos = line.find('%');
+  if (pct_pos != std::string::npos && pct_pos > 0) {
+    size_t start = pct_pos - 1;
+    while (start > 0 && (std::isdigit(line[start]) || line[start] == '.' || line[start] == ' ')) {
+      start--;
+    }
+    std::string num_str = line.substr(start + 1, pct_pos - (start + 1));
+    try {
+      double p = std::stod(num_str);
+      return std::max(0, std::min(100, static_cast<int>(p)));
+    } catch (...) {}
+  }
+  return -1;
+}
+
+static std::string extract_appstore_suffix(const std::string &line) {
+  auto bracket_pos = line.rfind(']');
+  if (bracket_pos != std::string::npos && bracket_pos + 1 < line.size()) {
+    std::string rem = line.substr(bracket_pos + 1);
+    auto pct_pos = rem.find('%');
+    if (pct_pos != std::string::npos && pct_pos + 1 < rem.size()) {
+      std::string detail = rem.substr(pct_pos + 1);
+      while (!detail.empty() && (detail.front() == ' ' || detail.front() == '\t')) detail.erase(0, 1);
+      while (!detail.empty() && (detail.back() == ' ' || detail.back() == '\t' || detail.back() == '\r' || detail.back() == '\n')) detail.pop_back();
+      return detail;
+    }
+    return rem;
+  }
+  return "";
+}
+
+void AppStorePanel::parse_appstore_output_line(const std::string &line) {
+  if (line.find("FATAL:") != std::string::npos || line.find("ERROR:") != std::string::npos) {
+    task_error_msg = line;
+  }
+
+  if (line.find("Downloading:") != std::string::npos) {
+    int p = extract_appstore_percent(line);
+    std::string detail = extract_appstore_suffix(line);
+    if (p >= 0) {
+      progress_percent.store(p);
+    }
+    std::lock_guard<std::mutex> lock(progress_mutex);
+    progress_stage_str = "Downloading package...";
+    if (!detail.empty()) {
+      progress_detail_str = detail;
+    }
+  } else if (line.find("SHA256 checksum verified") != std::string::npos) {
+    progress_percent.store(100);
+    std::lock_guard<std::mutex> lock(progress_mutex);
+    progress_stage_str = "Verifying package integrity...";
+    progress_detail_str = "SHA256 verified";
+  } else if (line.find("Installing:") != std::string::npos || line.find("Extracting package") != std::string::npos) {
+    int p = extract_appstore_percent(line);
+    std::string detail = extract_appstore_suffix(line);
+    if (p >= 0) {
+      progress_percent.store(p);
+    }
+    std::lock_guard<std::mutex> lock(progress_mutex);
+    progress_stage_str = "Installing files...";
+    if (!detail.empty()) {
+      progress_detail_str = detail;
+    }
+  } else if (line.find("dynamic service") != std::string::npos || line.find("Moonraker component") != std::string::npos || line.find("Added components") != std::string::npos) {
+    std::lock_guard<std::mutex> lock(progress_mutex);
+    progress_stage_str = "Configuring system services...";
+    progress_detail_str = "Registering components";
+  } else if (line.find("Successfully installed") != std::string::npos) {
+    progress_percent.store(100);
+    std::lock_guard<std::mutex> lock(progress_mutex);
+    progress_stage_str = "Installation complete!";
+    progress_detail_str = "Done";
+  }
+}
+
+void AppStorePanel::stream_process_output(const std::string &cmd, const std::string &initial_stage) {
+  {
+    std::lock_guard<std::mutex> lock(progress_mutex);
+    progress_stage_str = initial_stage;
+    progress_detail_str = "Starting...";
+    task_error_msg.clear();
+  }
+  progress_percent.store(0);
+
+  FILE *pipe = popen((cmd + " 2>&1").c_str(), "r");
+  if (!pipe) {
+    task_exit_code.store(1);
+    task_error_msg = "Failed to launch openke-app process.";
+    return;
+  }
+
+  std::string line;
+  int c;
+  while ((c = fgetc(pipe)) != EOF) {
+    if (c == '\r' || c == '\n') {
+      if (!line.empty()) {
+        parse_appstore_output_line(line);
+        line.clear();
+      }
+    } else {
+      line += static_cast<char>(c);
+    }
+  }
+  if (!line.empty()) {
+    parse_appstore_output_line(line);
+  }
+
+  int status = pclose(pipe);
+  int exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : 1;
+  task_exit_code.store(exit_code);
+}
+
+void AppStorePanel::show_progress_modal(const std::string &title, const std::string &initial_stage) {
   close_modal();
-  static const char *btns[] = {""};
-  modal_box = lv_msgbox_create(NULL, NULL, msg.c_str(), btns, false);
-  KUtils::style_dialog_msgbox(modal_box);
 
-  lv_obj_t *msg_obj = ((lv_msgbox_t *)modal_box)->text;
-  lv_obj_set_style_text_align(msg_obj, LV_TEXT_ALIGN_CENTER, 0);
-  lv_label_set_recolor(msg_obj, true);
-  lv_obj_set_width(msg_obj, LV_PCT(100));
-  lv_obj_center(msg_obj);
-
-  lv_obj_set_size(modal_box, LV_PCT(80), LV_PCT(45));
+  // Full-screen floating backdrop
+  modal_box = lv_obj_create(cont);
+  lv_obj_add_flag(modal_box, LV_OBJ_FLAG_FLOATING);
+  lv_obj_set_size(modal_box, LV_PCT(100), LV_PCT(100));
   lv_obj_center(modal_box);
+  lv_obj_move_foreground(modal_box);
+  lv_obj_set_style_bg_color(modal_box, lv_color_black(), 0);
+  lv_obj_set_style_bg_opa(modal_box, LV_OPA_70, 0);
+  lv_obj_set_style_border_width(modal_box, 0, 0);
+  lv_obj_set_style_pad_all(modal_box, 0, 0);
+  lv_obj_clear_flag(modal_box, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(modal_box, LV_OBJ_FLAG_CLICKABLE);
+
+  // Dialog card
+  lv_obj_t *card = lv_obj_create(modal_box);
+  lv_obj_set_size(card, LV_PCT(88), LV_PCT(62));
+  lv_obj_center(card);
+  lv_obj_set_style_bg_color(card, lv_palette_darken(LV_PALETTE_GREY, 4), 0);
+  lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_color(card, lv_palette_main(LV_PALETTE_BLUE), 0);
+  lv_obj_set_style_border_width(card, 2, 0);
+  lv_obj_set_style_radius(card, 12, 0);
+  lv_obj_set_style_pad_all(card, 14, 0);
+  lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+
+  lv_obj_t *title_lbl = lv_label_create(card);
+  lv_label_set_text(title_lbl, title.c_str());
+  lv_obj_set_style_text_font(title_lbl, &lv_font_montserrat_16, 0);
+  lv_obj_align(title_lbl, LV_ALIGN_TOP_MID, 0, 0);
+
+  stage_label = lv_label_create(card);
+  lv_label_set_text(stage_label, initial_stage.c_str());
+  lv_obj_set_style_text_font(stage_label, &lv_font_montserrat_12, 0);
+  lv_obj_align(stage_label, LV_ALIGN_TOP_MID, 0, 26);
+  lv_obj_set_style_text_align(stage_label, LV_TEXT_ALIGN_CENTER, 0);
+
+  progress_bar = lv_bar_create(card);
+  lv_obj_set_size(progress_bar, LV_PCT(94), 22);
+  lv_obj_align(progress_bar, LV_ALIGN_TOP_MID, 0, 48);
+  lv_bar_set_range(progress_bar, 0, 100);
+  lv_bar_set_value(progress_bar, 0, LV_ANIM_OFF);
+
+  progress_label = lv_label_create(card);
+  lv_label_set_text(progress_label, "0%");
+  lv_obj_set_style_text_font(progress_label, &lv_font_montserrat_12, 0);
+  lv_obj_align(progress_label, LV_ALIGN_TOP_MID, 0, 74);
+
+  detail_label = lv_label_create(card);
+  lv_label_set_text(detail_label, "Please wait...");
+  lv_obj_set_style_text_font(detail_label, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(detail_label, lv_palette_lighten(LV_PALETTE_GREY, 2), 0);
+  lv_obj_align(detail_label, LV_ALIGN_BOTTOM_MID, 0, 0);
+  lv_obj_set_style_text_align(detail_label, LV_TEXT_ALIGN_CENTER, 0);
 }
 
 void AppStorePanel::close_modal() {
   if (modal_box != nullptr) {
-    lv_msgbox_close(modal_box);
+    lv_obj_del(modal_box);
     modal_box = nullptr;
+    progress_bar = nullptr;
+    progress_label = nullptr;
+    stage_label = nullptr;
+    detail_label = nullptr;
   }
 }
 
@@ -821,21 +980,14 @@ void AppStorePanel::execute_refresh() {
   is_busy.store(true);
   task_finished.store(false);
 
-  show_progress_modal("Updating", "Refreshing App Store catalog...\nPlease wait.");
+  show_progress_modal("Updating", "Refreshing App Store catalog...");
 
   if (worker_thread.joinable()) {
     worker_thread.join();
   }
 
   worker_thread = std::thread([this]() {
-    try {
-      auto p = sp::Popen({"/usr/bin/openke-app", "update"}, sp::output{sp::PIPE}, sp::error{sp::PIPE});
-      p.communicate();
-      task_exit_code.store(0);
-    } catch (const std::exception &e) {
-      spdlog::warn("AppStore: update execution failed: {}", e.what());
-      task_exit_code.store(0);
-    }
+    stream_process_output("/usr/bin/openke-app update", "Checking for catalog updates...");
     task_finished.store(true);
   });
 }
@@ -845,36 +997,18 @@ void AppStorePanel::execute_install(const AppItem &app, bool activate) {
   is_busy.store(true);
   task_finished.store(false);
 
-  show_progress_modal("Installing", fmt::format("Installing #2196F3 {}# ...\nPlease wait.", app.name));
+  show_progress_modal("Installing " + app.name, "Initializing download...");
 
   if (worker_thread.joinable()) {
     worker_thread.join();
   }
 
   worker_thread = std::thread([this, app, activate]() {
-    std::string app_id = app.id;
-    std::vector<std::string> args = {"/usr/bin/openke-app", "install", app_id};
+    std::string cmd = "/usr/bin/openke-app install " + app.id;
     if (activate) {
-      args.push_back("--activate");
+      cmd += " --activate";
     }
-
-    try {
-      auto p = sp::Popen(args, sp::output{sp::PIPE}, sp::error{sp::PIPE});
-      auto res = p.communicate();
-      task_exit_code.store(p.retcode());
-      if (p.retcode() != 0) {
-        std::string err_str;
-        if (res.second.length > 0 && res.second.buf.data() != nullptr) {
-          err_str = std::string(res.second.buf.data(), res.second.length);
-        } else if (res.first.length > 0 && res.first.buf.data() != nullptr) {
-          err_str = std::string(res.first.buf.data(), res.first.length);
-        }
-        task_error_msg = err_str;
-      }
-    } catch (const std::exception &e) {
-      task_exit_code.store(1);
-      task_error_msg = e.what();
-    }
+    stream_process_output(cmd, "Connecting to download server...");
     task_finished.store(true);
   });
 }
@@ -884,36 +1018,18 @@ void AppStorePanel::execute_update(const AppItem &app) {
   is_busy.store(true);
   task_finished.store(false);
 
-  show_progress_modal("Updating", fmt::format("Updating #FFA726 {}# ...\nPlease wait.", app.name));
+  show_progress_modal("Updating " + app.name, "Initializing update...");
 
   if (worker_thread.joinable()) {
     worker_thread.join();
   }
 
   worker_thread = std::thread([this, app]() {
-    std::string app_id = app.id;
-    std::vector<std::string> args = {"/usr/bin/openke-app", "install", app_id};
+    std::string cmd = "/usr/bin/openke-app install " + app.id;
     if (app.is_active) {
-      args.push_back("--activate");
+      cmd += " --activate";
     }
-
-    try {
-      auto p = sp::Popen(args, sp::output{sp::PIPE}, sp::error{sp::PIPE});
-      auto res = p.communicate();
-      task_exit_code.store(p.retcode());
-      if (p.retcode() != 0) {
-        std::string err_str;
-        if (res.second.length > 0 && res.second.buf.data() != nullptr) {
-          err_str = std::string(res.second.buf.data(), res.second.length);
-        } else if (res.first.length > 0 && res.first.buf.data() != nullptr) {
-          err_str = std::string(res.first.buf.data(), res.first.length);
-        }
-        task_error_msg = err_str;
-      }
-    } catch (const std::exception &e) {
-      task_exit_code.store(1);
-      task_error_msg = e.what();
-    }
+    stream_process_output(cmd, "Connecting to update server...");
     task_finished.store(true);
   });
 }
@@ -963,35 +1079,42 @@ void AppStorePanel::execute_remove(const AppItem &app) {
   is_busy.store(true);
   task_finished.store(false);
 
-  show_progress_modal("Removing", fmt::format("Removing #FF5252 {}# ...\nPlease wait.", app.name));
+  show_progress_modal("Removing " + app.name, "Removing package files...");
 
   if (worker_thread.joinable()) {
     worker_thread.join();
   }
 
   worker_thread = std::thread([this, app]() {
-    try {
-      auto p = sp::Popen({"/usr/bin/openke-app", "remove", app.id}, sp::output{sp::PIPE}, sp::error{sp::PIPE});
-      auto res = p.communicate();
-      task_exit_code.store(p.retcode());
-      if (p.retcode() != 0) {
-        std::string err_str;
-        if (res.second.length > 0 && res.second.buf.data() != nullptr) {
-          err_str = std::string(res.second.buf.data(), res.second.length);
-        } else if (res.first.length > 0 && res.first.buf.data() != nullptr) {
-          err_str = std::string(res.first.buf.data(), res.first.length);
-        }
-        task_error_msg = err_str;
-      }
-    } catch (const std::exception &e) {
-      task_exit_code.store(1);
-      task_error_msg = e.what();
-    }
+    std::string cmd = "/usr/bin/openke-app remove " + app.id;
+    stream_process_output(cmd, "Uninstalling...");
     task_finished.store(true);
   });
 }
 
 void AppStorePanel::check_async_task() {
+  if (is_busy.load()) {
+    if (progress_bar != nullptr && progress_label != nullptr && stage_label != nullptr) {
+      int p = progress_percent.load();
+      lv_bar_set_value(progress_bar, p, LV_ANIM_OFF);
+      std::string plbl = std::to_string(p) + "%";
+      lv_label_set_text(progress_label, plbl.c_str());
+
+      std::string stage, detail;
+      {
+        std::lock_guard<std::mutex> lock(progress_mutex);
+        stage = progress_stage_str;
+        detail = progress_detail_str;
+      }
+      if (!stage.empty()) {
+        lv_label_set_text(stage_label, stage.c_str());
+      }
+      if (detail_label != nullptr && !detail.empty()) {
+        lv_label_set_text(detail_label, detail.c_str());
+      }
+    }
+  }
+
   if (is_busy.load() && task_finished.load()) {
     is_busy.store(false);
     task_finished.store(false);
@@ -1005,3 +1128,4 @@ void AppStorePanel::check_async_task() {
     }
   }
 }
+
