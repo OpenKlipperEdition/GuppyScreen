@@ -260,6 +260,31 @@ void AppStorePanel::refresh_apps() {
           app.service_enabled = item.value("service_enabled", true);
           app.service_status = item.value("service_status", "");
           app.status = item.value("status", "available");
+          app.pid = item.value("pid", -1);
+          app.cpu_percent = item.value("cpu_percent", 0.0);
+          app.ram_mb = item.value("ram_mb", 0.0);
+          app.ram_percent = item.value("ram_percent", 0.0);
+          app.ram_str = item.value("ram_str", "");
+          app.resource_summary = item.value("resource_summary", "");
+
+          // Fallback self-inspection for GuppyScreen if active
+          if (app.id == "guppyscreen" && app.is_active && app.resource_summary.empty()) {
+            std::ifstream status_f("/proc/self/status");
+            int rss_kb = 0;
+            std::string s_line;
+            while (std::getline(status_f, s_line)) {
+              if (s_line.rfind("VmRSS:", 0) == 0) {
+                std::sscanf(s_line.c_str(), "VmRSS: %d", &rss_kb);
+                break;
+              }
+            }
+            if (rss_kb > 0) {
+              app.ram_mb = (double)rss_kb / 1024.0;
+              app.ram_str = fmt::format("{:.1f} MB", app.ram_mb);
+              app.resource_summary = fmt::format("RAM: {}", app.ram_str);
+            }
+          }
+
           apps.push_back(app);
         }
         loaded_via_cli = true;
@@ -407,16 +432,22 @@ void AppStorePanel::build_app_list() {
       lv_obj_set_style_text_color(name_lbl, lv_palette_lighten(LV_PALETTE_GREEN, 1), 0);
     }
 
-    // Subtitle (category, version, update status, author, service status)
+    // Subtitle (category, version, update status, author, service status & resource usage)
     std::string svc_badge;
     if (app.is_installed && app.has_service) {
       if (!app.service_enabled) {
         svc_badge = " • #9E9E9E Service: Disabled#";
       } else if (app.service_status == "running") {
-        svc_badge = " • #4CAF50 Service: Running#";
+        if (!app.resource_summary.empty()) {
+          svc_badge = fmt::format(" • #4CAF50 Service: Running# (#64B5F6 {}#)", app.resource_summary);
+        } else {
+          svc_badge = " • #4CAF50 Service: Running#";
+        }
       } else {
         svc_badge = " • #FFA726 Service: Stopped#";
       }
+    } else if (app.is_active && !app.resource_summary.empty()) {
+      svc_badge = fmt::format(" • (#64B5F6 {}#)", app.resource_summary);
     }
 
     std::string meta;

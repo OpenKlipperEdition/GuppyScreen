@@ -32,6 +32,12 @@ struct AppItem {
   bool service_enabled{true};
   std::string service_status; // "running", "stopped", ""
   std::string status; // "active", "installed", "available"
+  int pid{-1};
+  double cpu_percent{0.0};
+  double ram_mb{0.0};
+  double ram_percent{0.0};
+  std::string ram_str;
+  std::string resource_summary;
 };
 
 class AppStorePanel {

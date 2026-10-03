@@ -21,6 +21,12 @@ struct TestAppItem {
   bool has_service{false};
   std::string service_status;
   std::string status;
+  int pid{-1};
+  double cpu_percent{0.0};
+  double ram_mb{0.0};
+  double ram_percent{0.0};
+  std::string ram_str;
+  std::string resource_summary;
 };
 
 TEST(AppStoreCatalog, parses_manifest_json_correctly) {
@@ -79,11 +85,11 @@ TEST(AppStoreCatalog, parses_manifest_json_correctly) {
 
 TEST(AppStoreCatalog, category_filtering_and_sorting) {
   std::vector<TestAppItem> apps = {
-    {"mainsail", "Mainsail", "web_ui", "2.12.0", "Mainsail Crew", "", true, true, true, false, "", "active"},
-    {"fluidd", "Fluidd", "web_ui", "1.30.0", "Fluidd Team", "", false, false, false, false, "", "available"},
-    {"guppyscreen", "GuppyScreen", "touch_ui", "1.0.0", "OpenKE", "", true, true, true, false, "", "active"},
-    {"helixscreen", "HelixScreen", "touch_ui", "0.5.0", "Helix", "", false, true, false, false, "", "installed"},
-    {"spoolman", "Spoolman", "plugin", "0.20.0", "Donkie", "", false, false, false, true, "stopped", "available"}
+    {"mainsail", "Mainsail", "web_ui", "2.12.0", "Mainsail Crew", "", true, true, true, false, "", "active", -1, 0.0, 0.0, 0.0, "", ""},
+    {"fluidd", "Fluidd", "web_ui", "1.30.0", "Fluidd Team", "", false, false, false, false, "", "available", -1, 0.0, 0.0, 0.0, "", ""},
+    {"guppyscreen", "GuppyScreen", "touch_ui", "1.0.0", "OpenKE", "", true, true, true, false, "", "active", -1, 0.0, 0.0, 0.0, "", ""},
+    {"helixscreen", "HelixScreen", "touch_ui", "0.5.0", "Helix", "", false, true, false, false, "", "installed", -1, 0.0, 0.0, 0.0, "", ""},
+    {"spoolman", "Spoolman", "plugin", "0.20.0", "Donkie", "", false, false, false, true, "stopped", "available", -1, 0.0, 0.0, 0.0, "", ""}
   };
 
   // Filter web_ui
@@ -146,6 +152,80 @@ TEST(AppStoreCatalog, service_detection_and_status_parsing) {
 
   ASSERT_FALSE(apps[2].has_service);
   ASSERT_EQ(apps[2].service_status, std::string(""));
+}
+
+TEST(AppStoreCatalog, resource_usage_metrics_parsing) {
+  std::string json_data = R"json([
+    {
+      "id": "spoolman",
+      "name": "Spoolman",
+      "category": "plugin",
+      "is_installed": true,
+      "is_active": false,
+      "has_service": true,
+      "service_status": "running",
+      "status": "installed",
+      "pid": 14058,
+      "cpu_percent": 1.5,
+      "ram_bytes": 19398656,
+      "ram_mb": 18.5,
+      "ram_str": "18.5 MB",
+      "ram_percent": 14.5,
+      "resource_summary": "CPU: 1.5% • RAM: 18.5 MB (14.5%)"
+    },
+    {
+      "id": "guppyscreen",
+      "name": "GuppyScreen",
+      "category": "touch_ui",
+      "is_installed": true,
+      "is_active": true,
+      "has_service": false,
+      "service_status": "",
+      "status": "active",
+      "pid": 1234,
+      "cpu_percent": 2.1,
+      "ram_bytes": 14889984,
+      "ram_mb": 14.2,
+      "ram_str": "14.2 MB",
+      "ram_percent": 11.1,
+      "resource_summary": "CPU: 2.1% • RAM: 14.2 MB (11.1%)"
+    }
+  ])json";
+
+  json parsed = json::parse(json_data);
+  ASSERT_TRUE(parsed.is_array());
+  ASSERT_EQ((int)parsed.size(), 2);
+
+  std::vector<TestAppItem> apps;
+  for (const auto &item : parsed) {
+    TestAppItem app;
+    app.id = item.value("id", "");
+    app.name = item.value("name", app.id);
+    app.category = item.value("category", "");
+    app.is_installed = item.value("is_installed", false);
+    app.is_active = item.value("is_active", false);
+    app.has_service = item.value("has_service", false);
+    app.service_status = item.value("service_status", "");
+    app.status = item.value("status", "available");
+    app.pid = item.value("pid", -1);
+    app.cpu_percent = item.value("cpu_percent", 0.0);
+    app.ram_mb = item.value("ram_mb", 0.0);
+    app.ram_percent = item.value("ram_percent", 0.0);
+    app.ram_str = item.value("ram_str", "");
+    app.resource_summary = item.value("resource_summary", "");
+    apps.push_back(app);
+  }
+
+  ASSERT_EQ(apps[0].pid, 14058);
+  ASSERT_EQ(apps[0].cpu_percent, 1.5);
+  ASSERT_EQ(apps[0].ram_str, std::string("18.5 MB"));
+  ASSERT_EQ(apps[0].ram_percent, 14.5);
+  ASSERT_EQ(apps[0].resource_summary, std::string("CPU: 1.5% • RAM: 18.5 MB (14.5%)"));
+
+  ASSERT_TRUE(apps[1].is_active);
+  ASSERT_EQ(apps[1].pid, 1234);
+  ASSERT_EQ(apps[1].cpu_percent, 2.1);
+  ASSERT_EQ(apps[1].ram_str, std::string("14.2 MB"));
 }
 
 int main() {
