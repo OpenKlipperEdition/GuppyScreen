@@ -27,17 +27,25 @@ LV_IMG_DECLARE(refresh_img);
 LV_IMG_DECLARE(update_img);
 
 
-// SWUpdate struct progress_msg definition
+// SWUpdate progress IPC protocol definitions (compatible with swupdate-2025.05 / progress_ipc.h)
+struct swupdate_progress_connect_ack {
+  unsigned int apiversion;
+  char magic[4];
+};
+
 struct swupdate_progress_msg {
-  unsigned int magic;
+  unsigned int apiversion;
   unsigned int status;
   unsigned int dwl_percent;
+  unsigned long long dwl_bytes;
   unsigned int nsteps;
   unsigned int cur_step;
   unsigned int cur_percent;
   char cur_image[256];
+  char hnd_name[64];
+  unsigned int source;
+  unsigned int infolen;
   char info[2048];
-  unsigned int inval;
 };
 
 UpdatePanel::UpdatePanel(KWebSocketClient &c)
@@ -1406,9 +1414,17 @@ static int connect_swupdate_progress() {
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
     if (connect(fd, (struct sockaddr*)&addr, sizeof(addr)) == 0) {
-      return fd;
+      struct swupdate_progress_connect_ack ack;
+      memset(&ack, 0, sizeof(ack));
+      ssize_t n = read(fd, &ack, sizeof(ack));
+      if (n == sizeof(ack) && strncmp(ack.magic, "ACK", 3) == 0) {
+        spdlog::info("Connected to SWUpdate progress IPC socket at {}", path);
+        return fd;
+      }
+      close(fd);
+    } else {
+      close(fd);
     }
-    close(fd);
   }
   return -1;
 }
@@ -1550,17 +1566,27 @@ void UpdatePanel::execute_update_thread(UpdatePackageItem pkg) {
       if (prog_fd >= 0) break;
     }
 
-    if (prog_fd >= 0) {
-      spdlog::info("Connected to SWUpdate progress IPC socket");
-      struct swupdate_progress_msg msg;
-      while (p.poll() == -1) {
+    auto start_flash_time = std::chrono::steady_clock::now();
+    int last_computed_pct = 5;
+    progress_percent = 5;
+
+    while (p.poll() == -1) {
+      usleep(100000); // 100ms
+      bool got_ipc_msg = false;
+
+      if (prog_fd >= 0) {
+        struct swupdate_progress_msg msg;
+        memset(&msg, 0, sizeof(msg));
         ssize_t bytes = read(prog_fd, &msg, sizeof(msg));
         if (bytes == sizeof(msg)) {
+          got_ipc_msg = true;
           if (msg.nsteps > 0 && msg.cur_step > 0) {
             int overall = ((msg.cur_step - 1) * 100 + msg.cur_percent) / msg.nsteps;
-            progress_percent = std::min(99, std::max(0, overall));
+            last_computed_pct = std::min(98, std::max(last_computed_pct, overall));
+            progress_percent = last_computed_pct;
           } else if (msg.cur_percent > 0) {
-            progress_percent = std::min(99, std::max(0, (int)msg.cur_percent));
+            last_computed_pct = std::min(98, std::max(last_computed_pct, (int)msg.cur_percent));
+            progress_percent = last_computed_pct;
           }
 
           std::string img_name = msg.cur_image;
@@ -1581,27 +1607,76 @@ void UpdatePanel::execute_update_thread(UpdatePackageItem pkg) {
             std::lock_guard<std::mutex> lock(status_mutex);
             status_message = ss.str();
           }
-        } else {
-          usleep(50000); // 50ms
         }
       }
-      close(prog_fd);
-    } else {
-      spdlog::warn("SWUpdate progress socket not available, tailing log output");
-      while (p.poll() == -1) {
-        usleep(200000); // 200ms
+
+      // If no IPC message received or IPC disconnected, tail log_file for live progress
+      if (!got_ipc_msg) {
         std::ifstream lf(log_file);
         if (lf.is_open()) {
           std::string line, last_line;
+          int current_substage = 0; // 0=init, 1=kernel, 2=rootfs, 3=postinstall
+          int stage_pct = 0;
+
           while (std::getline(lf, line)) {
-            if (!line.empty()) last_line = line;
+            if (line.empty()) continue;
+            last_line = line;
+
+            if (line.find("xImage") != std::string::npos || line.find("mmcblk0p5") != std::string::npos || line.find("mmcblk0p6") != std::string::npos) {
+              current_substage = 1;
+            } else if (line.find("rootfs") != std::string::npos || line.find("mmcblk0p7") != std::string::npos || line.find("mmcblk0p8") != std::string::npos) {
+              current_substage = 2;
+            } else if (line.find("postinstall") != std::string::npos) {
+              current_substage = 3;
+            }
+
+            // Look for percentage numbers e.g. " 45%" or "[========] 45%"
+            size_t pct_pos = line.rfind('%');
+            if (pct_pos != std::string::npos && pct_pos > 0) {
+              size_t start = pct_pos;
+              while (start > 0 && isdigit(line[start - 1])) {
+                start--;
+              }
+              if (start < pct_pos) {
+                try {
+                  stage_pct = std::stoi(line.substr(start, pct_pos - start));
+                } catch (...) {}
+              }
+            }
           }
+
+          int computed_pct = last_computed_pct;
+          std::string stage_desc = "Flashing system partitions...";
+
+          if (current_substage == 3) {
+            computed_pct = std::max(last_computed_pct, 90 + std::min(8, stage_pct / 12));
+            stage_desc = "Configuring target boot slot (" + std::to_string(computed_pct) + "%)...";
+          } else if (current_substage == 2) {
+            computed_pct = std::max(last_computed_pct, 30 + (stage_pct * 58) / 100);
+            stage_desc = "Writing rootfs partition (" + std::to_string(stage_pct > 0 ? stage_pct : computed_pct) + "%)...";
+          } else if (current_substage == 1) {
+            computed_pct = std::max(last_computed_pct, 10 + (stage_pct * 20) / 100);
+            stage_desc = "Writing kernel partition (" + std::to_string(stage_pct > 0 ? stage_pct : computed_pct) + "%)...";
+          } else {
+            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - start_flash_time).count();
+            computed_pct = std::min(15, 5 + static_cast<int>(elapsed * 2));
+            stage_desc = "Verifying package structure...";
+          }
+
+          last_computed_pct = std::min(98, std::max(last_computed_pct, computed_pct));
+          progress_percent = last_computed_pct;
+
           if (!last_line.empty()) {
             std::lock_guard<std::mutex> lock(status_mutex);
-            status_message = last_line.substr(0, 80);
+            status_message = stage_desc;
           }
         }
       }
+    }
+
+    if (prog_fd >= 0) {
+      close(prog_fd);
+      prog_fd = -1;
     }
 
     rc = p.retcode();
