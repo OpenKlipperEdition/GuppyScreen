@@ -6,6 +6,8 @@
 
 #include "hv/json.hpp"
 #include <algorithm>
+#include <chrono>
+#include <cstring>
 #include <fstream>
 #include <sstream>
 #include <iomanip>
@@ -367,6 +369,7 @@ static void scan_remote_repo(std::vector<UpdatePackageItem> &packages, const std
         item.is_nightly = (rel_type == "nightly" || is_git_commit_hash(item.version) || item.file_name.find("nightly") != std::string::npos);
 
         uint64_t sz_bytes = rel.value("size_bytes", (uint64_t)0);
+        item.total_size_bytes = sz_bytes;
         if (sz_bytes > 0) {
           std::stringstream ss;
           ss << std::fixed << std::setprecision(1) << (static_cast<double>(sz_bytes) / (1024.0 * 1024.0)) << " MB";
@@ -1381,6 +1384,35 @@ void UpdatePanel::start_update(const UpdatePackageItem &pkg) {
   worker_thread = std::thread(&UpdatePanel::execute_update_thread, this, pkg);
 }
 
+static int connect_swupdate_progress() {
+  const char *socket_candidates[] = {
+    "/tmp/swupdateprog",
+    "/var/run/swupdateprog",
+    "/tmp/swupdateprogress"
+  };
+
+  for (const char *path : socket_candidates) {
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) continue;
+
+    struct sockaddr_un addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_UNIX;
+    strncpy(addr.sun_path, path, sizeof(addr.sun_path) - 1);
+
+    struct timeval tv;
+    tv.tv_sec = 0;
+    tv.tv_usec = 200000; // 200ms non-blocking receive timeout
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+    if (connect(fd, (struct sockaddr*)&addr, sizeof(addr)) == 0) {
+      return fd;
+    }
+    close(fd);
+  }
+  return -1;
+}
+
 void UpdatePanel::execute_update_thread(UpdatePackageItem pkg) {
   spdlog::info("SWUpdate worker executing for {} (remote: {})", pkg.file_name, pkg.is_remote);
 
@@ -1404,22 +1436,37 @@ void UpdatePanel::execute_update_thread(UpdatePackageItem pkg) {
     }
     progress_percent = 0;
 
+    uint64_t expected_total_bytes = pkg.total_size_bytes;
+    auto start_time = std::chrono::steady_clock::now();
+
     std::string curl_cmd = "curl -fSL -k --connect-timeout 20 -m 1200 '" + pkg.file_path + "' -o '" + local_swu_path + "' > /tmp/curl-download.log 2>&1";
 
     try {
       auto dl_proc = sp::Popen(curl_cmd, sp::shell{true});
       while (dl_proc.poll() == -1) {
-        usleep(250000); // 250ms
+        usleep(200000); // 200ms
         if (fs::exists(local_swu_path)) {
           uintmax_t cur_sz = fs::file_size(local_swu_path);
-          double mb = static_cast<double>(cur_sz) / (1024.0 * 1024.0);
+          auto now = std::chrono::steady_clock::now();
+          double total_elapsed = std::chrono::duration<double>(now - start_time).count();
+          double cur_mb = static_cast<double>(cur_sz) / (1024.0 * 1024.0);
+          double speed = total_elapsed > 0.05 ? static_cast<double>(cur_sz) / total_elapsed : 0.0;
+          double speed_mb = speed / (1024.0 * 1024.0);
+
           std::stringstream ss;
-          ss << "Downloading: " << std::fixed << std::setprecision(1) << mb << " MB";
+          if (expected_total_bytes > 0) {
+            double total_mb = static_cast<double>(expected_total_bytes) / (1024.0 * 1024.0);
+            int pct = static_cast<int>((cur_sz * 100) / expected_total_bytes);
+            progress_percent = std::min(99, std::max(0, pct));
+            ss << "Downloading: " << std::fixed << std::setprecision(1) << cur_mb << " / " << total_mb << " MB (" << speed_mb << " MB/s)";
+          } else {
+            ss << "Downloading: " << std::fixed << std::setprecision(1) << cur_mb << " MB (" << speed_mb << " MB/s)";
+            progress_percent = std::min(progress_percent + 1, 95);
+          }
           {
             std::lock_guard<std::mutex> lock(status_mutex);
             status_message = ss.str();
           }
-          progress_percent = std::min(progress_percent + 1, 99);
         }
       }
 
@@ -1495,9 +1542,66 @@ void UpdatePanel::execute_update_thread(UpdatePackageItem pkg) {
   try {
     auto p = sp::Popen(cmd, sp::shell{true});
 
-    while (p.poll() == -1) {
+    // Connect to SWUpdate progress IPC socket for real-time partition flashing metrics
+    int prog_fd = -1;
+    for (int attempt = 0; attempt < 25 && p.poll() == -1; attempt++) {
       usleep(100000); // 100ms
-      progress_percent = std::min(progress_percent + 2, 95);
+      prog_fd = connect_swupdate_progress();
+      if (prog_fd >= 0) break;
+    }
+
+    if (prog_fd >= 0) {
+      spdlog::info("Connected to SWUpdate progress IPC socket");
+      struct swupdate_progress_msg msg;
+      while (p.poll() == -1) {
+        ssize_t bytes = read(prog_fd, &msg, sizeof(msg));
+        if (bytes == sizeof(msg)) {
+          if (msg.nsteps > 0 && msg.cur_step > 0) {
+            int overall = ((msg.cur_step - 1) * 100 + msg.cur_percent) / msg.nsteps;
+            progress_percent = std::min(99, std::max(0, overall));
+          } else if (msg.cur_percent > 0) {
+            progress_percent = std::min(99, std::max(0, (int)msg.cur_percent));
+          }
+
+          std::string img_name = msg.cur_image;
+          std::stringstream ss;
+          if (!img_name.empty()) {
+            ss << "Writing " << img_name;
+            if (msg.nsteps > 1) {
+              ss << " (Step " << msg.cur_step << "/" << msg.nsteps << ": " << msg.cur_percent << "%)";
+            } else {
+              ss << " (" << msg.cur_percent << "%)";
+            }
+          } else if (strlen(msg.info) > 0) {
+            ss << msg.info;
+          } else {
+            ss << "Flashing system partitions (" << progress_percent.load() << "%)...";
+          }
+          {
+            std::lock_guard<std::mutex> lock(status_mutex);
+            status_message = ss.str();
+          }
+        } else {
+          usleep(50000); // 50ms
+        }
+      }
+      close(prog_fd);
+    } else {
+      spdlog::warn("SWUpdate progress socket not available, tailing log output");
+      while (p.poll() == -1) {
+        usleep(200000); // 200ms
+        std::ifstream lf(log_file);
+        if (lf.is_open()) {
+          std::string line, last_line;
+          while (std::getline(lf, line)) {
+            if (!line.empty()) last_line = line;
+          }
+          if (!last_line.empty()) {
+            std::lock_guard<std::mutex> lock(status_mutex);
+            status_message = last_line.substr(0, 80);
+          }
+        }
+      }
     }
 
     rc = p.retcode();

@@ -27,6 +27,7 @@ struct UpdatePackageItem {
   bool is_nightly{false};
   int version_diff{0}; // >0 newer, 0 same, <0 older
   time_t modified_time{0};
+  uint64_t total_size_bytes{0};
 };
 
 enum class UpdateState {
