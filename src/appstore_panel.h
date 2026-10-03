@@ -29,6 +29,7 @@ struct AppItem {
   bool is_active{false};
   bool has_update{false};
   bool has_service{false};
+  bool service_enabled{true};
   std::string service_status; // "running", "stopped", ""
   std::string status; // "active", "installed", "available"
 };

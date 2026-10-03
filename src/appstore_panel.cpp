@@ -257,6 +257,7 @@ void AppStorePanel::refresh_apps() {
           app.installed_version = item.value("installed_version", "");
           app.has_update = item.value("has_update", false);
           app.has_service = item.value("has_service", false);
+          app.service_enabled = item.value("service_enabled", true);
           app.service_status = item.value("service_status", "");
           app.status = item.value("status", "available");
           apps.push_back(app);
@@ -293,6 +294,7 @@ void AppStorePanel::refresh_apps() {
               app.is_active = (app.id == "mainsail" || app.id == "guppyscreen");
               app.has_update = false;
               app.has_service = item.contains("service") || item.contains("service_init");
+              app.service_enabled = true;
               app.service_status = app.is_installed && app.has_service ? "running" : (app.has_service ? "stopped" : "");
               app.status = app.is_active ? "active" : (app.is_installed ? "installed" : "available");
               apps.push_back(app);
@@ -408,9 +410,11 @@ void AppStorePanel::build_app_list() {
     // Subtitle (category, version, update status, author, service status)
     std::string svc_badge;
     if (app.is_installed && app.has_service) {
-      if (app.service_status == "running") {
+      if (!app.service_enabled) {
+        svc_badge = " • #9E9E9E Service: Disabled#";
+      } else if (app.service_status == "running") {
         svc_badge = " • #4CAF50 Service: Running#";
-      } else if (app.service_status == "stopped") {
+      } else {
         svc_badge = " • #FFA726 Service: Stopped#";
       }
     }
@@ -486,52 +490,100 @@ void AppStorePanel::build_app_list() {
       }
     } else if (app.is_installed) {
       if (app.has_service) {
-        if (app.service_status == "running") {
-          lv_obj_t *stop_btn = lv_btn_create(action_cont);
-          lv_obj_set_size(stop_btn, LV_SIZE_CONTENT, 30);
-          lv_obj_set_style_radius(stop_btn, 15, 0);
-          lv_obj_set_style_bg_color(stop_btn, lv_palette_darken(LV_PALETTE_ORANGE, 2), 0);
+        if (!app.service_enabled) {
+          lv_obj_t *en_btn = lv_btn_create(action_cont);
+          lv_obj_set_size(en_btn, LV_SIZE_CONTENT, 30);
+          lv_obj_set_style_radius(en_btn, 15, 0);
+          lv_obj_set_style_bg_color(en_btn, lv_palette_main(LV_PALETTE_GREEN), 0);
 
-          lv_obj_t *stop_lbl = lv_label_create(stop_btn);
-          lv_label_set_text(stop_lbl, "Stop");
-          lv_obj_set_style_text_font(stop_lbl, &lv_font_montserrat_12, 0);
-          lv_obj_set_style_text_color(stop_lbl, lv_color_white(), 0);
-          lv_obj_center(stop_lbl);
+          lv_obj_t *en_lbl = lv_label_create(en_btn);
+          lv_label_set_text(en_lbl, "Enable");
+          lv_obj_set_style_text_font(en_lbl, &lv_font_montserrat_12, 0);
+          lv_obj_set_style_text_color(en_lbl, lv_color_white(), 0);
+          lv_obj_center(en_lbl);
 
-          auto stop_handler = [](lv_event_t *e) {
+          auto en_handler = [](lv_event_t *e) {
             if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
             auto *panel = static_cast<AppStorePanel*>(e->user_data);
             size_t i = (size_t)(uintptr_t)lv_obj_get_user_data(lv_event_get_current_target(e));
             if (i < panel->apps.size()) {
-              panel->show_service_confirm(panel->apps[i], "stop");
+              panel->show_service_confirm(panel->apps[i], "enable");
             }
           };
 
-          lv_obj_set_user_data(stop_btn, (void*)(uintptr_t)idx);
-          lv_obj_add_event_cb(stop_btn, stop_handler, LV_EVENT_CLICKED, this);
+          lv_obj_set_user_data(en_btn, (void*)(uintptr_t)idx);
+          lv_obj_add_event_cb(en_btn, en_handler, LV_EVENT_CLICKED, this);
         } else {
-          lv_obj_t *start_btn = lv_btn_create(action_cont);
-          lv_obj_set_size(start_btn, LV_SIZE_CONTENT, 30);
-          lv_obj_set_style_radius(start_btn, 15, 0);
-          lv_obj_set_style_bg_color(start_btn, lv_palette_main(LV_PALETTE_GREEN), 0);
+          if (app.service_status == "running") {
+            lv_obj_t *stop_btn = lv_btn_create(action_cont);
+            lv_obj_set_size(stop_btn, LV_SIZE_CONTENT, 30);
+            lv_obj_set_style_radius(stop_btn, 15, 0);
+            lv_obj_set_style_bg_color(stop_btn, lv_palette_darken(LV_PALETTE_ORANGE, 2), 0);
 
-          lv_obj_t *start_lbl = lv_label_create(start_btn);
-          lv_label_set_text(start_lbl, "Start");
-          lv_obj_set_style_text_font(start_lbl, &lv_font_montserrat_12, 0);
-          lv_obj_set_style_text_color(start_lbl, lv_color_white(), 0);
-          lv_obj_center(start_lbl);
+            lv_obj_t *stop_lbl = lv_label_create(stop_btn);
+            lv_label_set_text(stop_lbl, "Stop");
+            lv_obj_set_style_text_font(stop_lbl, &lv_font_montserrat_12, 0);
+            lv_obj_set_style_text_color(stop_lbl, lv_color_white(), 0);
+            lv_obj_center(stop_lbl);
 
-          auto start_handler = [](lv_event_t *e) {
+            auto stop_handler = [](lv_event_t *e) {
+              if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+              auto *panel = static_cast<AppStorePanel*>(e->user_data);
+              size_t i = (size_t)(uintptr_t)lv_obj_get_user_data(lv_event_get_current_target(e));
+              if (i < panel->apps.size()) {
+                panel->show_service_confirm(panel->apps[i], "stop");
+              }
+            };
+
+            lv_obj_set_user_data(stop_btn, (void*)(uintptr_t)idx);
+            lv_obj_add_event_cb(stop_btn, stop_handler, LV_EVENT_CLICKED, this);
+          } else {
+            lv_obj_t *start_btn = lv_btn_create(action_cont);
+            lv_obj_set_size(start_btn, LV_SIZE_CONTENT, 30);
+            lv_obj_set_style_radius(start_btn, 15, 0);
+            lv_obj_set_style_bg_color(start_btn, lv_palette_main(LV_PALETTE_GREEN), 0);
+
+            lv_obj_t *start_lbl = lv_label_create(start_btn);
+            lv_label_set_text(start_lbl, "Start");
+            lv_obj_set_style_text_font(start_lbl, &lv_font_montserrat_12, 0);
+            lv_obj_set_style_text_color(start_lbl, lv_color_white(), 0);
+            lv_obj_center(start_lbl);
+
+            auto start_handler = [](lv_event_t *e) {
+              if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+              auto *panel = static_cast<AppStorePanel*>(e->user_data);
+              size_t i = (size_t)(uintptr_t)lv_obj_get_user_data(lv_event_get_current_target(e));
+              if (i < panel->apps.size()) {
+                panel->show_service_confirm(panel->apps[i], "start");
+              }
+            };
+
+            lv_obj_set_user_data(start_btn, (void*)(uintptr_t)idx);
+            lv_obj_add_event_cb(start_btn, start_handler, LV_EVENT_CLICKED, this);
+          }
+
+          lv_obj_t *dis_btn = lv_btn_create(action_cont);
+          lv_obj_set_size(dis_btn, LV_SIZE_CONTENT, 30);
+          lv_obj_set_style_radius(dis_btn, 15, 0);
+          lv_obj_set_style_bg_color(dis_btn, lv_palette_darken(LV_PALETTE_GREY, 3), 0);
+
+          lv_obj_t *dis_lbl = lv_label_create(dis_btn);
+          lv_label_set_text(dis_lbl, "Disable");
+          lv_obj_set_style_text_font(dis_lbl, &lv_font_montserrat_12, 0);
+          lv_obj_set_style_text_color(dis_lbl, lv_palette_lighten(LV_PALETTE_GREY, 2), 0);
+          lv_obj_center(dis_lbl);
+
+          auto dis_handler = [](lv_event_t *e) {
             if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
             auto *panel = static_cast<AppStorePanel*>(e->user_data);
             size_t i = (size_t)(uintptr_t)lv_obj_get_user_data(lv_event_get_current_target(e));
             if (i < panel->apps.size()) {
-              panel->show_service_confirm(panel->apps[i], "start");
+              panel->show_service_confirm(panel->apps[i], "disable");
             }
           };
 
-          lv_obj_set_user_data(start_btn, (void*)(uintptr_t)idx);
-          lv_obj_add_event_cb(start_btn, start_handler, LV_EVENT_CLICKED, this);
+          lv_obj_set_user_data(dis_btn, (void*)(uintptr_t)idx);
+          lv_obj_add_event_cb(dis_btn, dis_handler, LV_EVENT_CLICKED, this);
         }
       }
 
@@ -834,12 +886,27 @@ void AppStorePanel::show_service_confirm(const AppItem &app, const std::string &
   pending_app = app;
 
   static const char *btns[] = {"Cancel", "Confirm", ""};
-  std::string act_title = action == "start" ? "Start" : "Stop";
-  std::string act_color = action == "start" ? "#4CAF50" : "#FFA726";
+  std::string act_title, act_color, act_desc;
+  if (action == "start") {
+    act_title = "Start";
+    act_color = "#4CAF50";
+    act_desc = "The background service process will be started.";
+  } else if (action == "stop") {
+    act_title = "Stop";
+    act_color = "#FFA726";
+    act_desc = "The background service process will be stopped.";
+  } else if (action == "enable") {
+    act_title = "Enable";
+    act_color = "#4CAF50";
+    act_desc = "The service will be enabled for automatic startup on boot and started now.";
+  } else if (action == "disable") {
+    act_title = "Disable";
+    act_color = "#FFA726";
+    act_desc = "The service will be stopped and disabled from starting on boot.";
+  }
+
   std::string msg = fmt::format("{} service for\n{} {}# ?\n\n{}",
-                                act_title, act_color, app.name,
-                                action == "start" ? "The background service process will be started."
-                                                  : "The background service process will be stopped.");
+                                act_title, act_color, app.name, act_desc);
 
   lv_obj_t *mbox = lv_msgbox_create(NULL, NULL, msg.c_str(), btns, false);
   KUtils::style_dialog_msgbox(mbox);
@@ -947,12 +1014,13 @@ void AppStorePanel::parse_appstore_output_line(const std::string &line) {
     std::lock_guard<std::mutex> lock(progress_mutex);
     progress_stage_str = "Configuring system services...";
     progress_detail_str = "Registering components";
-  } else if (line.find("Starting") != std::string::npos || line.find("Stopping") != std::string::npos) {
+  } else if (line.find("Starting") != std::string::npos || line.find("Stopping") != std::string::npos || line.find("Enabling") != std::string::npos || line.find("Disabling") != std::string::npos) {
     progress_percent.store(50);
     std::lock_guard<std::mutex> lock(progress_mutex);
     progress_stage_str = line;
     progress_detail_str = "Managing service";
-  } else if (line.find("Successfully installed") != std::string::npos || (line.find("OK") != std::string::npos && (line.find("service") != std::string::npos || line.find("Started") != std::string::npos || line.find("Stopped") != std::string::npos))) {
+  } else if (line.find("Successfully installed") != std::string::npos ||
+             (line.find("OK") != std::string::npos && (line.find("service") != std::string::npos || line.find("Started") != std::string::npos || line.find("Stopped") != std::string::npos || line.find("Enabled") != std::string::npos || line.find("Disabled") != std::string::npos))) {
     progress_percent.store(100);
     std::lock_guard<std::mutex> lock(progress_mutex);
     progress_stage_str = "Service operation complete!";
@@ -1217,17 +1285,34 @@ void AppStorePanel::execute_service_action(const AppItem &app, const std::string
   is_busy.store(true);
   task_finished.store(false);
 
-  std::string title = (action == "start" ? "Starting " : "Stopping ") + app.name;
-  std::string initial_stage = (action == "start" ? "Starting service process..." : "Stopping service process...");
+  std::string title;
+  std::string initial_stage;
+  if (action == "start") {
+    title = "Starting " + app.name;
+    initial_stage = "Starting service process...";
+  } else if (action == "stop") {
+    title = "Stopping " + app.name;
+    initial_stage = "Stopping service process...";
+  } else if (action == "enable") {
+    title = "Enabling " + app.name;
+    initial_stage = "Enabling service...";
+  } else if (action == "disable") {
+    title = "Disabling " + app.name;
+    initial_stage = "Disabling service...";
+  } else {
+    title = "Managing " + app.name;
+    initial_stage = "Processing service action...";
+  }
+
   show_progress_modal(title, initial_stage);
 
   if (worker_thread.joinable()) {
     worker_thread.join();
   }
 
-  worker_thread = std::thread([this, app, action]() {
+  worker_thread = std::thread([this, app, action, initial_stage]() {
     std::string cmd = fmt::format("/usr/bin/openke-app service {} {}", action, app.id);
-    stream_process_output(cmd, action == "start" ? "Starting service..." : "Stopping service...");
+    stream_process_output(cmd, initial_stage);
     task_finished.store(true);
   });
 }
