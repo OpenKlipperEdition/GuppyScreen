@@ -366,8 +366,9 @@ void AppStorePanel::build_app_list() {
     lv_obj_set_size(card, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_style_radius(card, 8, 0);
     lv_obj_set_style_pad_all(card, 8, 0);
-    lv_obj_set_flex_flow(card, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(card, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_gap(card, 4, 0);
+    lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(card, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
     lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
 
     if (app.has_update) {
@@ -388,10 +389,31 @@ void AppStorePanel::build_app_list() {
       lv_obj_set_style_bg_color(card, lv_palette_darken(LV_PALETTE_GREY, 4), 0);
     }
 
-    // Left icon container with category-themed subtle background
-    lv_obj_t *icon_cont = lv_obj_create(card);
-    lv_obj_set_size(icon_cont, 48, 48);
-    lv_obj_set_style_radius(icon_cont, 8, 0);
+    // Top Header Row: Icon + Title on left, Action buttons on right
+    lv_obj_t *header_row = lv_obj_create(card);
+    lv_obj_set_size(header_row, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(header_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(header_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_all(header_row, 0, 0);
+    lv_obj_set_style_bg_opa(header_row, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(header_row, 0, 0);
+    lv_obj_clear_flag(header_row, LV_OBJ_FLAG_SCROLLABLE);
+
+    // Left title group (Icon + Name)
+    lv_obj_t *title_cont = lv_obj_create(header_row);
+    lv_obj_set_size(title_cont, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(title_cont, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(title_cont, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_all(title_cont, 0, 0);
+    lv_obj_set_style_pad_gap(title_cont, 8, 0);
+    lv_obj_set_style_bg_opa(title_cont, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(title_cont, 0, 0);
+    lv_obj_clear_flag(title_cont, LV_OBJ_FLAG_SCROLLABLE);
+
+    // Category-themed Icon container
+    lv_obj_t *icon_cont = lv_obj_create(title_cont);
+    lv_obj_set_size(icon_cont, 32, 32);
+    lv_obj_set_style_radius(icon_cont, 6, 0);
     lv_obj_set_style_pad_all(icon_cont, 2, 0);
     if (app.category == "web_ui") {
       lv_obj_set_style_bg_color(icon_cont, lv_palette_darken(LV_PALETTE_BLUE, 3), 0);
@@ -409,71 +431,20 @@ void AppStorePanel::build_app_list() {
     lv_img_set_src(icon_img, get_app_icon(app));
     lv_obj_center(icon_img);
 
-    // Middle text container
-    lv_obj_t *text_cont = lv_obj_create(card);
-    lv_obj_set_flex_grow(text_cont, 1);
-    lv_obj_set_height(text_cont, LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(text_cont, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_left(text_cont, 8, 0);
-    lv_obj_set_style_pad_top(text_cont, 0, 0);
-    lv_obj_set_style_pad_right(text_cont, 4, 0);
-    lv_obj_set_style_pad_bottom(text_cont, 0, 0);
-    lv_obj_set_style_bg_opa(text_cont, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(text_cont, 0, 0);
-    lv_obj_clear_flag(text_cont, LV_OBJ_FLAG_SCROLLABLE);
-
     // Title label
-    lv_obj_t *name_lbl = lv_label_create(text_cont);
+    lv_obj_t *name_lbl = lv_label_create(title_cont);
     lv_label_set_text(name_lbl, app.name.c_str());
     lv_obj_set_style_text_font(name_lbl, &lv_font_montserrat_16, 0);
     if (app.has_update) {
       lv_obj_set_style_text_color(name_lbl, lv_palette_lighten(LV_PALETTE_ORANGE, 1), 0);
     } else if (app.is_active) {
       lv_obj_set_style_text_color(name_lbl, lv_palette_lighten(LV_PALETTE_GREEN, 1), 0);
-    }
-
-    // Subtitle (category, version, update status, author, service status & resource usage)
-    std::string svc_badge;
-    if (app.is_installed && app.has_service) {
-      if (!app.service_enabled) {
-        svc_badge = " • #9E9E9E Service: Disabled#";
-      } else if (app.service_status == "running") {
-        if (!app.resource_summary.empty()) {
-          svc_badge = fmt::format(" • #4CAF50 Service: Running# (#64B5F6 {}#)", app.resource_summary);
-        } else {
-          svc_badge = " • #4CAF50 Service: Running#";
-        }
-      } else {
-        svc_badge = " • #FFA726 Service: Stopped#";
-      }
-    } else if (app.is_active && !app.resource_summary.empty()) {
-      svc_badge = fmt::format(" • (#64B5F6 {}#)", app.resource_summary);
-    }
-
-    std::string meta;
-    if (app.has_update) {
-      meta = fmt::format("{} • #FFA726 Update Available: v{} (installed: v{})#{}{} • {}",
-                         app.category, app.version, app.installed_version.empty() ? "?" : app.installed_version,
-                         svc_badge, app.author);
     } else {
-      meta = fmt::format("{} • v{}{}{}", app.category, app.version, svc_badge, app.author.empty() ? "" : (" • " + app.author));
-    }
-    lv_obj_t *meta_lbl = lv_label_create(text_cont);
-    lv_label_set_text(meta_lbl, meta.c_str());
-    lv_label_set_recolor(meta_lbl, true);
-    lv_obj_set_style_text_font(meta_lbl, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(meta_lbl, lv_palette_lighten(LV_PALETTE_GREY, 1), 0);
-
-    // Description
-    if (!app.description.empty()) {
-      lv_obj_t *desc_lbl = lv_label_create(text_cont);
-      lv_label_set_text(desc_lbl, app.description.c_str());
-      lv_obj_set_style_text_font(desc_lbl, &lv_font_montserrat_12, 0);
-      lv_obj_set_style_text_color(desc_lbl, lv_palette_main(LV_PALETTE_GREY), 0);
+      lv_obj_set_style_text_color(name_lbl, lv_color_white(), 0);
     }
 
     // Right Action Buttons Container
-    lv_obj_t *action_cont = lv_obj_create(card);
+    lv_obj_t *action_cont = lv_obj_create(header_row);
     lv_obj_set_size(action_cont, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(action_cont, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_pad_all(action_cont, 0, 0);
@@ -493,8 +464,12 @@ void AppStorePanel::build_app_list() {
 
     if (app.is_active) {
       lv_obj_t *badge = lv_btn_create(action_cont);
-      lv_obj_set_size(badge, LV_SIZE_CONTENT, 30);
-      lv_obj_set_style_radius(badge, 15, 0);
+      lv_obj_set_size(badge, LV_SIZE_CONTENT, 28);
+      lv_obj_set_style_radius(badge, 14, 0);
+      lv_obj_set_style_pad_left(badge, 8, 0);
+      lv_obj_set_style_pad_right(badge, 8, 0);
+      lv_obj_set_style_pad_top(badge, 2, 0);
+      lv_obj_set_style_pad_bottom(badge, 2, 0);
       lv_obj_set_style_bg_color(badge, lv_palette_main(LV_PALETTE_GREEN), 0);
       lv_obj_clear_flag(badge, LV_OBJ_FLAG_CLICKABLE);
 
@@ -506,8 +481,12 @@ void AppStorePanel::build_app_list() {
 
       if (app.has_update) {
         lv_obj_t *upd_btn = lv_btn_create(action_cont);
-        lv_obj_set_size(upd_btn, LV_SIZE_CONTENT, 30);
-        lv_obj_set_style_radius(upd_btn, 15, 0);
+        lv_obj_set_size(upd_btn, LV_SIZE_CONTENT, 28);
+        lv_obj_set_style_radius(upd_btn, 14, 0);
+        lv_obj_set_style_pad_left(upd_btn, 8, 0);
+        lv_obj_set_style_pad_right(upd_btn, 8, 0);
+        lv_obj_set_style_pad_top(upd_btn, 2, 0);
+        lv_obj_set_style_pad_bottom(upd_btn, 2, 0);
         lv_obj_set_style_bg_color(upd_btn, lv_palette_main(LV_PALETTE_ORANGE), 0);
 
         lv_obj_t *upd_lbl = lv_label_create(upd_btn);
@@ -523,8 +502,12 @@ void AppStorePanel::build_app_list() {
       if (app.has_service) {
         if (!app.service_enabled) {
           lv_obj_t *en_btn = lv_btn_create(action_cont);
-          lv_obj_set_size(en_btn, LV_SIZE_CONTENT, 30);
-          lv_obj_set_style_radius(en_btn, 15, 0);
+          lv_obj_set_size(en_btn, LV_SIZE_CONTENT, 28);
+          lv_obj_set_style_radius(en_btn, 14, 0);
+          lv_obj_set_style_pad_left(en_btn, 8, 0);
+          lv_obj_set_style_pad_right(en_btn, 8, 0);
+          lv_obj_set_style_pad_top(en_btn, 2, 0);
+          lv_obj_set_style_pad_bottom(en_btn, 2, 0);
           lv_obj_set_style_bg_color(en_btn, lv_palette_main(LV_PALETTE_GREEN), 0);
 
           lv_obj_t *en_lbl = lv_label_create(en_btn);
@@ -547,8 +530,12 @@ void AppStorePanel::build_app_list() {
         } else {
           if (app.service_status == "running") {
             lv_obj_t *stop_btn = lv_btn_create(action_cont);
-            lv_obj_set_size(stop_btn, LV_SIZE_CONTENT, 30);
-            lv_obj_set_style_radius(stop_btn, 15, 0);
+            lv_obj_set_size(stop_btn, LV_SIZE_CONTENT, 28);
+            lv_obj_set_style_radius(stop_btn, 14, 0);
+            lv_obj_set_style_pad_left(stop_btn, 8, 0);
+            lv_obj_set_style_pad_right(stop_btn, 8, 0);
+            lv_obj_set_style_pad_top(stop_btn, 2, 0);
+            lv_obj_set_style_pad_bottom(stop_btn, 2, 0);
             lv_obj_set_style_bg_color(stop_btn, lv_palette_darken(LV_PALETTE_ORANGE, 2), 0);
 
             lv_obj_t *stop_lbl = lv_label_create(stop_btn);
@@ -570,8 +557,12 @@ void AppStorePanel::build_app_list() {
             lv_obj_add_event_cb(stop_btn, stop_handler, LV_EVENT_CLICKED, this);
           } else {
             lv_obj_t *start_btn = lv_btn_create(action_cont);
-            lv_obj_set_size(start_btn, LV_SIZE_CONTENT, 30);
-            lv_obj_set_style_radius(start_btn, 15, 0);
+            lv_obj_set_size(start_btn, LV_SIZE_CONTENT, 28);
+            lv_obj_set_style_radius(start_btn, 14, 0);
+            lv_obj_set_style_pad_left(start_btn, 8, 0);
+            lv_obj_set_style_pad_right(start_btn, 8, 0);
+            lv_obj_set_style_pad_top(start_btn, 2, 0);
+            lv_obj_set_style_pad_bottom(start_btn, 2, 0);
             lv_obj_set_style_bg_color(start_btn, lv_palette_main(LV_PALETTE_GREEN), 0);
 
             lv_obj_t *start_lbl = lv_label_create(start_btn);
@@ -594,8 +585,12 @@ void AppStorePanel::build_app_list() {
           }
 
           lv_obj_t *dis_btn = lv_btn_create(action_cont);
-          lv_obj_set_size(dis_btn, LV_SIZE_CONTENT, 30);
-          lv_obj_set_style_radius(dis_btn, 15, 0);
+          lv_obj_set_size(dis_btn, LV_SIZE_CONTENT, 28);
+          lv_obj_set_style_radius(dis_btn, 14, 0);
+          lv_obj_set_style_pad_left(dis_btn, 8, 0);
+          lv_obj_set_style_pad_right(dis_btn, 8, 0);
+          lv_obj_set_style_pad_top(dis_btn, 2, 0);
+          lv_obj_set_style_pad_bottom(dis_btn, 2, 0);
           lv_obj_set_style_bg_color(dis_btn, lv_palette_darken(LV_PALETTE_GREY, 3), 0);
 
           lv_obj_t *dis_lbl = lv_label_create(dis_btn);
@@ -620,8 +615,12 @@ void AppStorePanel::build_app_list() {
 
       if (app.has_update) {
         lv_obj_t *upd_btn = lv_btn_create(action_cont);
-        lv_obj_set_size(upd_btn, LV_SIZE_CONTENT, 30);
-        lv_obj_set_style_radius(upd_btn, 15, 0);
+        lv_obj_set_size(upd_btn, LV_SIZE_CONTENT, 28);
+        lv_obj_set_style_radius(upd_btn, 14, 0);
+        lv_obj_set_style_pad_left(upd_btn, 8, 0);
+        lv_obj_set_style_pad_right(upd_btn, 8, 0);
+        lv_obj_set_style_pad_top(upd_btn, 2, 0);
+        lv_obj_set_style_pad_bottom(upd_btn, 2, 0);
         lv_obj_set_style_bg_color(upd_btn, lv_palette_main(LV_PALETTE_ORANGE), 0);
 
         lv_obj_t *upd_lbl = lv_label_create(upd_btn);
@@ -636,8 +635,12 @@ void AppStorePanel::build_app_list() {
 
       if (app.category == "web_ui" || app.category == "touch_ui") {
         lv_obj_t *act_btn = lv_btn_create(action_cont);
-        lv_obj_set_size(act_btn, LV_SIZE_CONTENT, 30);
-        lv_obj_set_style_radius(act_btn, 15, 0);
+        lv_obj_set_size(act_btn, LV_SIZE_CONTENT, 28);
+        lv_obj_set_style_radius(act_btn, 14, 0);
+        lv_obj_set_style_pad_left(act_btn, 8, 0);
+        lv_obj_set_style_pad_right(act_btn, 8, 0);
+        lv_obj_set_style_pad_top(act_btn, 2, 0);
+        lv_obj_set_style_pad_bottom(act_btn, 2, 0);
         lv_obj_set_style_bg_color(act_btn, lv_palette_main(LV_PALETTE_BLUE), 0);
 
         lv_obj_t *act_lbl = lv_label_create(act_btn);
@@ -661,8 +664,12 @@ void AppStorePanel::build_app_list() {
 
       if (!app.is_builtin) {
         lv_obj_t *rm_btn = lv_btn_create(action_cont);
-        lv_obj_set_size(rm_btn, LV_SIZE_CONTENT, 30);
-        lv_obj_set_style_radius(rm_btn, 15, 0);
+        lv_obj_set_size(rm_btn, LV_SIZE_CONTENT, 28);
+        lv_obj_set_style_radius(rm_btn, 14, 0);
+        lv_obj_set_style_pad_left(rm_btn, 8, 0);
+        lv_obj_set_style_pad_right(rm_btn, 8, 0);
+        lv_obj_set_style_pad_top(rm_btn, 2, 0);
+        lv_obj_set_style_pad_bottom(rm_btn, 2, 0);
         lv_obj_set_style_bg_color(rm_btn, lv_palette_main(LV_PALETTE_RED), 0);
 
         lv_obj_t *rm_lbl = lv_label_create(rm_btn);
@@ -686,8 +693,12 @@ void AppStorePanel::build_app_list() {
     } else {
       // Uninstalled app: Show Install Button
       lv_obj_t *inst_btn = lv_btn_create(action_cont);
-      lv_obj_set_size(inst_btn, LV_SIZE_CONTENT, 30);
-      lv_obj_set_style_radius(inst_btn, 15, 0);
+      lv_obj_set_size(inst_btn, LV_SIZE_CONTENT, 28);
+      lv_obj_set_style_radius(inst_btn, 14, 0);
+      lv_obj_set_style_pad_left(inst_btn, 8, 0);
+      lv_obj_set_style_pad_right(inst_btn, 8, 0);
+      lv_obj_set_style_pad_top(inst_btn, 2, 0);
+      lv_obj_set_style_pad_bottom(inst_btn, 2, 0);
       lv_obj_set_style_bg_color(inst_btn, lv_palette_main(LV_PALETTE_BLUE), 0);
 
       lv_obj_t *inst_lbl = lv_label_create(inst_btn);
@@ -707,6 +718,49 @@ void AppStorePanel::build_app_list() {
 
       lv_obj_set_user_data(inst_btn, (void*)(uintptr_t)idx);
       lv_obj_add_event_cb(inst_btn, inst_handler, LV_EVENT_CLICKED, this);
+    }
+
+    // Middle Row: Status, Resources, Category, Version across full card width
+    std::string meta = fmt::format("#9E9E9E {} • v{}#", app.category, app.version);
+
+    if (app.is_installed && app.has_service) {
+      if (!app.service_enabled) {
+        meta += "   #9E9E9E ✕ Service: Disabled#";
+      } else if (app.service_status == "running") {
+        meta += "   #4CAF50 ● Service: Running#";
+      } else {
+        meta += "   #FFA726 ○ Service: Stopped#";
+      }
+    } else if (app.is_active) {
+      meta += "   #4CAF50 ● Active UI#";
+    }
+
+    if (!app.resource_summary.empty()) {
+      meta += fmt::format("   #64B5F6 [ {} ]#", app.resource_summary);
+    }
+
+    if (app.has_update) {
+      meta += fmt::format("   #FFA726 (Update: v{})#", app.version);
+    }
+
+    if (!app.author.empty()) {
+      meta += fmt::format("   #757575 by {}#", app.author);
+    }
+
+    lv_obj_t *meta_lbl = lv_label_create(card);
+    lv_obj_set_width(meta_lbl, LV_PCT(100));
+    lv_label_set_text(meta_lbl, meta.c_str());
+    lv_label_set_recolor(meta_lbl, true);
+    lv_obj_set_style_text_font(meta_lbl, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(meta_lbl, lv_palette_lighten(LV_PALETTE_GREY, 1), 0);
+
+    // Bottom Row: Description (Full Width)
+    if (!app.description.empty()) {
+      lv_obj_t *desc_lbl = lv_label_create(card);
+      lv_obj_set_width(desc_lbl, LV_PCT(100));
+      lv_label_set_text(desc_lbl, app.description.c_str());
+      lv_obj_set_style_text_font(desc_lbl, &lv_font_montserrat_12, 0);
+      lv_obj_set_style_text_color(desc_lbl, lv_palette_main(LV_PALETTE_GREY), 0);
     }
   }
 }
